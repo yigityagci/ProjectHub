@@ -1,5 +1,6 @@
+import type { Prisma } from "@prisma/client";
 import { ROLE_RANK, type RoleKey } from "@projecthub/shared";
-import type { CreateProjectInput, UpdateProjectInput } from "@projecthub/shared";
+import type { CreateProjectInput, ProjectListQuery, UpdateProjectInput } from "@projecthub/shared";
 import { prisma } from "../core/prisma.js";
 import { ConflictError, NotFoundError, ValidationError } from "../core/errors.js";
 
@@ -44,19 +45,53 @@ export async function createProject(input: CreateProjectServiceInput) {
 }
 
 /**
+ * Builds the Phase 7 search/filter clauses (`q`/`status`/`archived`) as an
+ * `AND`-composed array, so they only ever narrow an already access-filtered
+ * project list — never replace or relax the visibility rules built by
+ * `listProjectsForUser` below. Substring match (`contains`), not a
+ * full-text index — same deliberate v1 scaffolding tradeoff as task search.
+ */
+function buildProjectFilterClauses(filters: ProjectListQuery = {}): Prisma.ProjectWhereInput[] {
+  const clauses: Prisma.ProjectWhereInput[] = [];
+  if (filters.q) {
+    clauses.push({
+      OR: [
+        { name: { contains: filters.q, mode: "insensitive" } },
+        { description: { contains: filters.q, mode: "insensitive" } },
+      ],
+    });
+  }
+  if (filters.status) clauses.push({ status: filters.status });
+  if (filters.archived !== undefined) clauses.push({ archived: filters.archived });
+  return clauses;
+}
+
+/**
  * Access-filtered project list, mirroring the same visibility rules as
  * requireProjectAccess:
  *  - CLIENT: only projects they hold a ProjectMembership row for.
  *  - Everyone else: workspace-visible projects, plus any private projects
  *    they hold a ProjectMembership row for, plus (if ranked >= PROJECT_MANAGER)
  *    every private project regardless of membership.
+ *
+ * `filters` (Phase 7 search/filter) are AND-composed on top of the above —
+ * they can only ever narrow this same access-filtered set, never widen it
+ * beyond what the caller could already see.
  */
-export async function listProjectsForUser(workspaceId: string, userId: string, roleKey: RoleKey) {
+export async function listProjectsForUser(
+  workspaceId: string,
+  userId: string,
+  roleKey: RoleKey,
+  filters: ProjectListQuery = {},
+) {
+  const filterClauses = buildProjectFilterClauses(filters);
+
   if (roleKey === "CLIENT") {
     return prisma.project.findMany({
       where: {
         workspaceId,
         memberships: { some: { userId } },
+        AND: filterClauses,
       },
       orderBy: { createdAt: "asc" },
     });
@@ -67,10 +102,15 @@ export async function listProjectsForUser(workspaceId: string, userId: string, r
   return prisma.project.findMany({
     where: {
       workspaceId,
-      OR: [
-        { visibility: "workspace" },
-        ...(hasElevatedRank ? [{ visibility: "private" as const }] : []),
-        { visibility: "private", memberships: { some: { userId } } },
+      AND: [
+        {
+          OR: [
+            { visibility: "workspace" },
+            ...(hasElevatedRank ? [{ visibility: "private" as const }] : []),
+            { visibility: "private", memberships: { some: { userId } } },
+          ],
+        },
+        ...filterClauses,
       ],
     },
     orderBy: { createdAt: "asc" },

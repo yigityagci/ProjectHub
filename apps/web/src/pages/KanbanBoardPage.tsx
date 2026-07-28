@@ -15,6 +15,7 @@ import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
 import { getSocket, joinWorkspaceRoom, joinProjectRoom, leaveProjectRoom } from "../lib/socket.js";
 import NotificationBell from "../components/NotificationBell.js";
+import ThemeToggle from "../components/ThemeToggle.js";
 import ActivityFeed from "../components/ActivityFeed.js";
 import TaskDetailModal from "./TaskDetailModal.js";
 import type { CurrentUser } from "../App.js";
@@ -74,7 +75,7 @@ function TaskCard({
           </span>
         ))}
         {task.assignees.length > 0 && (
-          <span style={{ fontSize: "0.72rem", color: "#64748b" }}>
+          <span style={{ fontSize: "0.72rem", color: "var(--ph-muted)" }}>
             {task.assignees.map((a) => a.displayName).join(", ")}
           </span>
         )}
@@ -95,6 +96,18 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [newTaskTitleByColumn, setNewTaskTitleByColumn] = useState<Record<string, string>>({});
   const [view, setView] = useState<"board" | "activity">("board");
+
+  // Phase 7 search/filter: filtered client-side against the board already
+  // fetched in full for this project (simpler and equally correct for a
+  // single-project board — see docs/PHASES.md Phase 7 notes). This never
+  // calls the server with a different scope; it only narrows what's
+  // rendered from `tasks`, which itself only ever contains this project's
+  // tasks.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("");
+  const [assigneeFilter, setAssigneeFilter] = useState("");
+  const [labelFilter, setLabelFilter] = useState("");
+  const [overdueOnly, setOverdueOnly] = useState(false);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -181,9 +194,51 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, projectId]);
 
+  const assigneeOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const t of tasks) {
+      for (const a of t.assignees) map.set(a.userId, a.displayName);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  }, [tasks]);
+
+  const labelOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const t of tasks) {
+      for (const l of t.labels) map.set(l.labelId, l.name);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  }, [tasks]);
+
+  const filteredTasks = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const now = Date.now();
+    return tasks.filter((t) => {
+      if (q && !t.title.toLowerCase().includes(q) && !(t.description ?? "").toLowerCase().includes(q)) {
+        return false;
+      }
+      if (priorityFilter && t.priority !== priorityFilter) return false;
+      if (assigneeFilter && !t.assignees.some((a) => a.userId === assigneeFilter)) return false;
+      if (labelFilter && !t.labels.some((l) => l.labelId === labelFilter)) return false;
+      if (overdueOnly && !(t.dueDate && new Date(t.dueDate).getTime() < now && !t.completedAt)) return false;
+      return true;
+    });
+  }, [tasks, searchQuery, priorityFilter, assigneeFilter, labelFilter, overdueOnly]);
+
+  const hasActiveTaskFilters = Boolean(
+    searchQuery || priorityFilter || assigneeFilter || labelFilter || overdueOnly,
+  );
+  function clearTaskFilters() {
+    setSearchQuery("");
+    setPriorityFilter("");
+    setAssigneeFilter("");
+    setLabelFilter("");
+    setOverdueOnly(false);
+  }
+
   const tasksByColumn = useMemo(() => {
     const map = new Map<string, Task[]>();
-    for (const t of tasks) {
+    for (const t of filteredTasks) {
       const list = map.get(t.columnId) ?? [];
       list.push(t);
       map.set(t.columnId, list);
@@ -192,7 +247,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
       list.sort((a, b) => a.position - b.position);
     }
     return map;
-  }, [tasks]);
+  }, [filteredTasks]);
 
   const canEditTasks = role !== null && CAN_EDIT_TASK_ROLES.has(role);
   const canCreateTasks = role !== null && CAN_CREATE_TASK_ROLES.has(role);
@@ -286,7 +341,8 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     <div className="ph-shell ph-shell-wide">
       <div className="ph-topbar ph-topbar-wide">
         <Brand />
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+        <div className="ph-topbar-actions">
+          <ThemeToggle />
           <NotificationBell />
           <span style={{ fontSize: "0.9rem" }}>{user.displayName}</span>
         </div>
@@ -323,6 +379,62 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
             Analytics
           </Link>
         </div>
+
+        {view === "board" && (
+          <div className="ph-filter-bar">
+            <input
+              type="search"
+              placeholder="Search tasks by title or description..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              aria-label="Search tasks"
+            />
+            <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} aria-label="Filter by priority">
+              <option value="">All priorities</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="urgent">Urgent</option>
+            </select>
+            {assigneeOptions.length > 0 && (
+              <select
+                value={assigneeFilter}
+                onChange={(e) => setAssigneeFilter(e.target.value)}
+                aria-label="Filter by assignee"
+              >
+                <option value="">All assignees</option>
+                {assigneeOptions.map(([id, displayName]) => (
+                  <option key={id} value={id}>
+                    {displayName}
+                  </option>
+                ))}
+              </select>
+            )}
+            {labelOptions.length > 0 && (
+              <select value={labelFilter} onChange={(e) => setLabelFilter(e.target.value)} aria-label="Filter by label">
+                <option value="">All labels</option>
+                {labelOptions.map(([id, labelName]) => (
+                  <option key={id} value={id}>
+                    {labelName}
+                  </option>
+                ))}
+              </select>
+            )}
+            <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.85rem" }}>
+              <input type="checkbox" checked={overdueOnly} onChange={(e) => setOverdueOnly(e.target.checked)} />
+              Overdue only
+            </label>
+            {hasActiveTaskFilters && (
+              <button
+                type="button"
+                className="ph-button ph-button-secondary ph-filter-clear"
+                onClick={clearTaskFilters}
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        )}
 
         {view === "activity" ? (
           workspaceId && projectId ? <ActivityFeed workspaceId={workspaceId} projectId={projectId} /> : null

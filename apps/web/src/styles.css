@@ -1,3 +1,19 @@
+/*
+ * Theming (Phase 7): every color used anywhere in this stylesheet or in a
+ * component's inline styles should route through one of these custom
+ * properties, never a hardcoded hex value, so both the light default and
+ * the dark variant stay a single source of truth. Two independent ways to
+ * end up in dark mode, both landing on the exact same variable values:
+ *
+ *  1. No explicit user choice stored yet + the OS/browser reports a dark
+ *     `prefers-color-scheme` -> the `@media` block below applies (skipped
+ *     entirely if the user has explicitly chosen "light", via the
+ *     `:not([data-theme="light"])` guard).
+ *  2. An explicit user choice IS stored (`apps/web/src/lib/theme.ts` sets
+ *     `<html data-theme="dark">` or `data-theme="light"` and persists the
+ *     choice in localStorage) -> the `[data-theme="dark"]` rule below
+ *     forces dark regardless of system preference.
+ */
 :root {
   --ph-primary: #0ea5e9;
   --ph-secondary: #f59e0b;
@@ -7,18 +23,61 @@
   --ph-info: #3b82f6;
   --ph-bg: #f8fafc;
   --ph-text: #1e293b;
+  --ph-muted: #64748b;
   --ph-border: #e2e8f0;
   --ph-surface: #ffffff;
+  --ph-shadow: rgba(0, 0, 0, 0.08);
+  --ph-overlay: rgba(15, 23, 42, 0.55);
+  --ph-toast-bg: #1e293b;
+  --ph-toast-text: #ffffff;
+  --ph-badge-onhold-text: #b45309;
+  --ph-badge-completed-text: #475569;
+  color-scheme: light;
   font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    --ph-primary: #38bdf8;
+    --ph-secondary: #fbbf24;
+    --ph-success: #34d399;
+    --ph-error: #f87171;
+    --ph-warning: #fcd34d;
+    --ph-info: #60a5fa;
     --ph-bg: #0f172a;
-    --ph-text: #f1f5f9;
+    --ph-text: #e2e8f0;
+    --ph-muted: #94a3b8;
     --ph-border: #334155;
     --ph-surface: #1e293b;
+    --ph-shadow: rgba(0, 0, 0, 0.5);
+    --ph-overlay: rgba(2, 6, 23, 0.7);
+    --ph-toast-bg: #334155;
+    --ph-toast-text: #f1f5f9;
+    --ph-badge-onhold-text: #fcd34d;
+    --ph-badge-completed-text: #cbd5e1;
+    color-scheme: dark;
   }
+}
+
+:root[data-theme="dark"] {
+  --ph-primary: #38bdf8;
+  --ph-secondary: #fbbf24;
+  --ph-success: #34d399;
+  --ph-error: #f87171;
+  --ph-warning: #fcd34d;
+  --ph-info: #60a5fa;
+  --ph-bg: #0f172a;
+  --ph-text: #e2e8f0;
+  --ph-muted: #94a3b8;
+  --ph-border: #334155;
+  --ph-surface: #1e293b;
+  --ph-shadow: rgba(0, 0, 0, 0.5);
+  --ph-overlay: rgba(2, 6, 23, 0.7);
+  --ph-toast-bg: #334155;
+  --ph-toast-text: #f1f5f9;
+  --ph-badge-onhold-text: #fcd34d;
+  --ph-badge-completed-text: #cbd5e1;
+  color-scheme: dark;
 }
 
 * {
@@ -73,7 +132,7 @@ body {
   border: 1px solid var(--ph-border);
   border-radius: 12px;
   padding: 2rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 3px var(--ph-shadow);
 }
 
 .ph-card.ph-card-wide {
@@ -87,7 +146,7 @@ body {
 
 .ph-card p.ph-subtitle {
   margin: 0 0 1.5rem;
-  color: #64748b;
+  color: var(--ph-muted);
   font-size: 0.9rem;
 }
 
@@ -188,7 +247,16 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
   margin-bottom: 1.5rem;
+}
+
+.ph-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .ph-topbar.ph-topbar-wide {
@@ -207,7 +275,7 @@ body {
 
 .ph-breadcrumb {
   font-size: 0.85rem;
-  color: #64748b;
+  color: var(--ph-muted);
   margin-bottom: 0.75rem;
 }
 
@@ -267,7 +335,7 @@ body {
   border-radius: 999px;
   font-weight: 600;
   background: rgba(100, 116, 139, 0.15);
-  color: #64748b;
+  color: var(--ph-muted);
   text-transform: capitalize;
 }
 
@@ -283,12 +351,12 @@ body {
 
 .ph-badge-status-on_hold {
   background: rgba(251, 191, 36, 0.18);
-  color: #b45309;
+  color: var(--ph-badge-onhold-text);
 }
 
 .ph-badge-status-completed {
   background: rgba(100, 116, 139, 0.2);
-  color: #475569;
+  color: var(--ph-badge-completed-text);
 }
 
 .ph-badge-private {
@@ -299,7 +367,7 @@ body {
 .ph-empty-state {
   padding: 2rem 1rem;
   text-align: center;
-  color: #64748b;
+  color: var(--ph-muted);
   border: 1px dashed var(--ph-border);
   border-radius: 10px;
   font-size: 0.9rem;
@@ -370,7 +438,7 @@ body {
 
 .ph-board-column-count {
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--ph-muted);
 }
 
 .ph-board-column-body {
@@ -435,24 +503,26 @@ body {
   position: fixed;
   bottom: 1.5rem;
   right: 1.5rem;
-  background: #1e293b;
-  color: white;
+  max-width: min(420px, calc(100vw - 3rem));
+  background: var(--ph-toast-bg);
+  color: var(--ph-toast-text);
   padding: 0.75rem 1.1rem;
   border-radius: 8px;
   font-size: 0.85rem;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 12px var(--ph-shadow);
   z-index: 50;
 }
 
 .ph-toast-error {
   background: var(--ph-error);
+  color: white;
 }
 
 /* Task detail modal */
 .ph-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.55);
+  background: var(--ph-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -507,7 +577,7 @@ body {
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: #64748b;
+  color: var(--ph-muted);
   margin: 0 0 0.5rem;
 }
 
@@ -615,7 +685,7 @@ body {
 }
 
 .ph-activity-time {
-  color: #64748b;
+  color: var(--ph-muted);
   font-size: 0.72rem;
   display: block;
   margin-top: 0.15rem;
@@ -643,7 +713,7 @@ body {
 
 .ph-stat-card .ph-stat-label {
   font-size: 0.78rem;
-  color: #64748b;
+  color: var(--ph-muted);
 }
 
 .ph-health-banner {
@@ -736,4 +806,111 @@ body {
   background: var(--ph-primary);
   border-radius: 2px 2px 0 0;
   min-height: 2px;
+}
+
+/* Phase 7: theme toggle control (app shell, next to the notification bell
+   / logout button) and the search/filter bar used on the projects list and
+   Kanban board pages. Deliberately plain, matching the existing minimal
+   ph-* approach. */
+
+.ph-theme-toggle {
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  padding: 0.45rem 0.7rem;
+}
+
+.ph-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  margin-bottom: 1.1rem;
+}
+
+.ph-filter-bar input[type="text"],
+.ph-filter-bar input[type="search"] {
+  flex: 1 1 220px;
+  min-width: 160px;
+  padding: 0.5rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid var(--ph-border);
+  font-size: 0.9rem;
+  background: var(--ph-surface);
+  color: inherit;
+}
+
+.ph-filter-bar select {
+  padding: 0.5rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--ph-border);
+  font-size: 0.85rem;
+  background: var(--ph-surface);
+  color: inherit;
+  flex: 0 1 auto;
+}
+
+.ph-filter-bar .ph-filter-clear {
+  width: auto;
+  font-size: 0.8rem;
+  padding: 0.4rem 0.7rem;
+}
+
+/* Responsive polish pass (Phase 7): narrow-viewport fixes for surfaces
+   added in Phases 3-6 that hadn't been audited against small screens yet
+   (the Kanban board's horizontal column scroll and the task detail modal's
+   single-column stacking were already handled in Phase 2). */
+
+@media (max-width: 640px) {
+  .ph-shell {
+    padding: 1.25rem 0.75rem;
+  }
+
+  .ph-card {
+    padding: 1.25rem;
+  }
+
+  .ph-modal {
+    padding: 1.1rem;
+  }
+
+  .ph-page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ph-stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .ph-bar-row {
+    grid-template-columns: 90px 1fr 2.4rem;
+    font-size: 0.78rem;
+  }
+
+  /* The notification dropdown is absolutely positioned with a fixed width;
+     clamp it to the viewport so it can never overflow horizontally on a
+     narrow phone screen. */
+  .ph-notification-dropdown {
+    width: min(320px, calc(100vw - 2rem)) !important;
+    right: -0.5rem;
+  }
+
+  .ph-toast {
+    right: 0.75rem;
+    bottom: 0.75rem;
+    max-width: calc(100vw - 1.5rem);
+  }
+}
+
+@media (max-width: 420px) {
+  .ph-stat-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .ph-board-column {
+    flex-basis: 82vw;
+  }
 }

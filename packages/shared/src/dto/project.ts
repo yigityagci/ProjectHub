@@ -55,3 +55,21 @@ export const addProjectMemberSchema = z
   })
   .strict();
 export type AddProjectMemberInput = z.infer<typeof addProjectMemberSchema>;
+
+/**
+ * Phase 7 search/filter query params for `GET .../projects`. `q` is a
+ * plain substring match over name/description; results are still filtered
+ * through the exact same access-visibility rules as before (this only ever
+ * narrows the already-access-filtered list, never widens it).
+ */
+export const projectListQuerySchema = z
+  .object({
+    q: z.string().trim().min(1).max(255).optional(),
+    status: projectStatusSchema.optional(),
+    archived: z
+      .enum(["true", "false"])
+      .transform((v) => v === "true")
+      .optional(),
+  })
+  .strict();
+export type ProjectListQuery = z.infer<typeof projectListQuerySchema>;

@@ -74,3 +74,29 @@ export const createDependencySchema = z
   })
   .strict();
 export type CreateDependencyInput = z.infer<typeof createDependencySchema>;
+
+/**
+ * Phase 7 search/filter query params for `GET .../tasks`. Deliberately a
+ * plain `WHERE` builder (substring `contains` match, no full-text index) —
+ * this always composes with, never replaces, the `workspaceId`/`projectId`
+ * scoping already enforced by `requireMembership`/`requireProjectAccess`;
+ * none of these fields can be used to reach another project's/workspace's
+ * tasks.
+ */
+const queryBooleanSchema = z
+  .enum(["true", "false"])
+  .transform((v) => v === "true");
+
+export const taskListQuerySchema = z
+  .object({
+    q: z.string().trim().min(1).max(255).optional(),
+    columnId: z.string().min(1).optional(),
+    priority: taskPrioritySchema.optional(),
+    assigneeId: z.string().min(1).optional(),
+    labelId: z.string().min(1).optional(),
+    overdue: queryBooleanSchema.optional(),
+    parentTaskId: z.string().min(1).optional(),
+    hasSubtasks: queryBooleanSchema.optional(),
+  })
+  .strict();
+export type TaskListQuery = z.infer<typeof taskListQuerySchema>;

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
+import ThemeToggle from "../components/ThemeToggle.js";
 import type { CurrentUser } from "../App.js";
 
 interface Project {
@@ -27,6 +28,19 @@ export default function ProjectsPage({ user }: { user: CurrentUser }) {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
+  // Phase 7 search/filter: the projects list is filtered server-side (a
+  // workspace can have many projects), debounced so `q` doesn't fire a
+  // request on every keystroke.
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [archivedFilter, setArchivedFilter] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(searchInput.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
   async function load() {
     if (!workspaceId) return;
     try {
@@ -36,7 +50,15 @@ export default function ProjectsPage({ user }: { user: CurrentUser }) {
       setWorkspaceName(ws.workspace.name);
       setRole(ws.role);
 
-      const res = await api.get<{ projects: Project[] }>(`/api/workspaces/${workspaceId}/projects`);
+      const params = new URLSearchParams();
+      if (debouncedQuery) params.set("q", debouncedQuery);
+      if (statusFilter) params.set("status", statusFilter);
+      if (archivedFilter) params.set("archived", archivedFilter);
+      const qs = params.toString();
+
+      const res = await api.get<{ projects: Project[] }>(
+        `/api/workspaces/${workspaceId}/projects${qs ? `?${qs}` : ""}`,
+      );
       setProjects(res.projects);
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
@@ -50,7 +72,14 @@ export default function ProjectsPage({ user }: { user: CurrentUser }) {
   useEffect(() => {
     load().catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId]);
+  }, [workspaceId, debouncedQuery, statusFilter, archivedFilter]);
+
+  const hasActiveFilters = Boolean(searchInput || statusFilter || archivedFilter);
+  function clearFilters() {
+    setSearchInput("");
+    setStatusFilter("");
+    setArchivedFilter("");
+  }
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
@@ -75,7 +104,10 @@ export default function ProjectsPage({ user }: { user: CurrentUser }) {
     <div className="ph-shell ph-shell-wide">
       <div className="ph-topbar ph-topbar-wide">
         <Brand />
-        <span style={{ fontSize: "0.9rem" }}>{user.displayName}</span>
+        <div className="ph-topbar-actions">
+          <ThemeToggle />
+          <span style={{ fontSize: "0.9rem" }}>{user.displayName}</span>
+        </div>
       </div>
 
       <div className="ph-page-wide">
@@ -92,12 +124,51 @@ export default function ProjectsPage({ user }: { user: CurrentUser }) {
           </div>
         </div>
 
+        <div className="ph-filter-bar">
+          <input
+            type="search"
+            placeholder="Search projects by name or description..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            aria-label="Search projects"
+          />
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
+            <option value="">All statuses</option>
+            <option value="planning">Planning</option>
+            <option value="active">Active</option>
+            <option value="on_hold">On hold</option>
+            <option value="completed">Completed</option>
+          </select>
+          <select
+            value={archivedFilter}
+            onChange={(e) => setArchivedFilter(e.target.value)}
+            aria-label="Filter by archived status"
+          >
+            <option value="">Active + archived</option>
+            <option value="false">Not archived</option>
+            <option value="true">Archived only</option>
+          </select>
+          {hasActiveFilters && (
+            <button type="button" className="ph-button ph-button-secondary ph-filter-clear" onClick={clearFilters}>
+              Clear filters
+            </button>
+          )}
+        </div>
+
         {projects === null ? (
           <p>Loading...</p>
         ) : projects.length === 0 ? (
           <div className="ph-empty-state">
-            No projects yet.{" "}
-            {canCreate ? "Create your first project below to get started." : "Ask a project manager or admin to create one."}
+            {hasActiveFilters ? (
+              "No projects match your search/filters."
+            ) : (
+              <>
+                No projects yet.{" "}
+                {canCreate
+                  ? "Create your first project below to get started."
+                  : "Ask a project manager or admin to create one."}
+              </>
+            )}
           </div>
         ) : (
           <ul className="ph-project-list">

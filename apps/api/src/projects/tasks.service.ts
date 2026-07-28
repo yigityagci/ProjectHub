@@ -1,4 +1,5 @@
-import type { CreateTaskInput, UpdateTaskInput } from "@projecthub/shared";
+import type { Prisma } from "@prisma/client";
+import type { CreateTaskInput, TaskListQuery, UpdateTaskInput } from "@projecthub/shared";
 import { prisma } from "../core/prisma.js";
 import { NotFoundError, ValidationError } from "../core/errors.js";
 import { computeAppendPosition, computeInsertPosition } from "./position.js";
@@ -8,9 +9,42 @@ const DONE_CATEGORY = "done";
 
 const TASK_NOT_FOUND_MESSAGE = "This task doesn't exist in this project.";
 
-export async function listTasks(projectId: string) {
+/**
+ * Builds the task search/filter `WHERE` clause on top of the mandatory
+ * `projectId` scope (itself already derived from `req.ctx.project`, never
+ * from client input) — every filter here only ever narrows this same
+ * project's tasks, it can never be used to reach another project's or
+ * workspace's rows. Substring match (`contains`), not a full-text index —
+ * a deliberate v1 scaffolding choice, adequate for per-project task counts.
+ */
+function buildTaskWhere(projectId: string, filters: TaskListQuery = {}): Prisma.TaskWhereInput {
+  const where: Prisma.TaskWhereInput = { projectId };
+
+  if (filters.q) {
+    where.OR = [
+      { title: { contains: filters.q, mode: "insensitive" } },
+      { description: { contains: filters.q, mode: "insensitive" } },
+    ];
+  }
+  if (filters.columnId) where.columnId = filters.columnId;
+  if (filters.priority) where.priority = filters.priority;
+  if (filters.parentTaskId) where.parentTaskId = filters.parentTaskId;
+  if (filters.assigneeId) where.assignees = { some: { userId: filters.assigneeId } };
+  if (filters.labelId) where.labels = { some: { labelId: filters.labelId } };
+  if (filters.overdue) {
+    where.dueDate = { lt: new Date() };
+    where.completedAt = null;
+  }
+  if (filters.hasSubtasks !== undefined) {
+    where.subtasks = filters.hasSubtasks ? { some: {} } : { none: {} };
+  }
+
+  return where;
+}
+
+export async function listTasks(projectId: string, filters: TaskListQuery = {}) {
   return prisma.task.findMany({
-    where: { projectId },
+    where: buildTaskWhere(projectId, filters),
     include: {
       assignees: { include: { user: true } },
       labels: { include: { label: true } },

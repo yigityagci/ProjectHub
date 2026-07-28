@@ -657,7 +657,7 @@ export default function TaskDetailModal({
                   >
                     {a.filename}
                   </button>{" "}
-                  <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                  <span style={{ fontSize: "0.75rem", color: "var(--ph-muted)" }}>
                     ({formatBytes(a.sizeBytes)} — uploaded by {a.uploaderDisplayName})
                   </span>
                 </span>
@@ -691,7 +691,7 @@ export default function TaskDetailModal({
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                   <strong style={{ fontSize: "0.85rem" }}>{c.authorDisplayName}</strong>
-                  <span style={{ fontSize: "0.72rem", color: "#64748b" }}>{formatDateTime(c.createdAt)}</span>
+                  <span style={{ fontSize: "0.72rem", color: "var(--ph-muted)" }}>{formatDateTime(c.createdAt)}</span>
                 </div>
                 <p style={{ margin: "0.25rem 0", whiteSpace: "pre-wrap" }}>{renderCommentBody(c.body, members)}</p>
                 {(c.authorId === currentUserId || isElevated) && (

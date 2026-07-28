@@ -5,6 +5,7 @@ import {
   moveTaskSchema,
   addAssigneeSchema,
   createDependencySchema,
+  taskListQuerySchema,
 } from "@projecthub/shared";
 import { ValidationError, NotFoundError } from "../core/errors.js";
 import {
@@ -89,7 +90,15 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     "/api/workspaces/:workspaceId/projects/:projectId/tasks",
     { preHandler: [requireAuth, requireMembership, requireProjectAccess] },
     async (req, reply) => {
-      const tasks = await listTasks(req.ctx.project!.id);
+      const parsed = taskListQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        throw new ValidationError(parsed.error.issues[0]?.message ?? "Invalid filter parameters.");
+      }
+      // req.ctx.project!.id is always derived from requireProjectAccess (the
+      // URL's :projectId, already verified against the caller's live
+      // workspace+project membership) — never from the query string, so
+      // these filters can only ever narrow this same project's tasks.
+      const tasks = await listTasks(req.ctx.project!.id, parsed.data);
       return reply.send({ tasks: tasks.map(serializeTask) });
     },
   );

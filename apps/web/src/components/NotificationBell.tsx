@@ -104,7 +104,7 @@ export default function NotificationBell() {
 
       {open && (
         <div
-          className="ph-card"
+          className="ph-card ph-notification-dropdown"
           style={{
             position: "absolute",
             right: 0,
@@ -129,7 +129,7 @@ export default function NotificationBell() {
             )}
           </div>
           {notifications.length === 0 ? (
-            <p style={{ fontSize: "0.8rem", color: "#64748b" }}>No notifications yet.</p>
+            <p style={{ fontSize: "0.8rem", color: "var(--ph-muted)" }}>No notifications yet.</p>
           ) : (
             <ul style={{ listStyle: "none", margin: "0.5rem 0 0", padding: 0 }}>
               {notifications.map((n) => (
@@ -148,7 +148,7 @@ export default function NotificationBell() {
                     }}
                   >
                     <div>{describeNotification(n)}</div>
-                    <div style={{ fontSize: "0.7rem", color: "#64748b" }}>
+                    <div style={{ fontSize: "0.7rem", color: "var(--ph-muted)" }}>
                       {new Date(n.createdAt).toLocaleString()}
                     </div>
                   </button>

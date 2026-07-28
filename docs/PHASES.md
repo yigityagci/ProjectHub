@@ -1,11 +1,11 @@
 # ProjectHub Phase Roadmap
 
 ProjectHub's full v1 scope is delivered incrementally across eight
-phases. This document describes each phase's intent. Phases 1-4 are
-implemented in this repository today; Phases 5-8 are planned and
-described at a level sufficient to guide future work, without
-prescribing implementation details that belong to their own planning
-pass.
+phases. This document describes each phase's intent. **All eight phases
+are implemented in this repository as of Phase 8.** Each phase's section
+below describes what it delivered and, honestly, what remains
+scaffolding-tier rather than exhaustively hardened - see each phase's own
+"Scaffolded, not exhaustive" note.
 
 ## Phase 1 — Foundation: Auth, Workspaces, RBAC scaffold (implemented)
 
@@ -336,19 +336,143 @@ separate "became blocked at" timestamp exists); milestone-pace elapsed-time
 is measured against the project's own `startDate`/`targetDate`, not each
 milestone's individual target date.
 
-## Phase 7 — Search/filter, light/dark mode, responsive polish
+## Phase 7 — Search/filter, light/dark mode, responsive polish (implemented)
 
-Adds workspace-wide search and filtering across projects/tasks, full
+**Goal:** workspace-wide search and filtering across projects/tasks, full
 light/dark theming (building on the brand palette established in Phase
-1's minimal frontend), and responsive layout polish across breakpoints.
-This phase is primarily frontend-focused and does not introduce new
-backend authorization surface.
+1's minimal frontend), and responsive layout polish across breakpoints -
+primarily frontend-focused, deliberately introducing no new backend
+authorization surface (every filter composes with, never replaces, the
+existing `requireMembership`/`requireProjectAccess` scoping).
 
-## Phase 8 — Hardening, docs, backup/restore, production readiness
+**Delivered:**
 
-Closes out v1 with full production hardening documentation, a completed
-`SECURITY.md` and `CONTRIBUTING.md` (both stubbed in Phase 1), database
-backup/restore scripts/documentation for the self-hosted Postgres
-volume, expanded production configuration guidance, and an end-to-end
-self-host smoke test that walks through `docker-compose up` on a clean
-machine to first-admin setup to a fully working workspace.
+- `GET /api/workspaces/:workspaceId/projects/:projectId/tasks` extended
+  with `q` (substring match over title/description), `columnId`,
+  `priority`, `assigneeId`, `labelId`, `overdue` (boolean: past `dueDate`
+  and no `completedAt`), `parentTaskId`, and `hasSubtasks` query params
+  (`packages/shared/src/dto/task.ts#taskListQuerySchema`, `.strict()` so
+  an unrecognized/crafted query field is rejected outright, not silently
+  ignored). Every filter is `AND`-composed in the Prisma `WHERE` builder
+  on top of the `projectId` that guard chain already resolved from the
+  URL - a filter can never reach another project's or workspace's tasks,
+  even when two different projects have identically-titled tasks (covered
+  by a dedicated isolation test).
+- `GET /api/workspaces/:workspaceId/projects` extended the same way with
+  `q` (name/description substring), `status`, and `archived`, `AND`
+  -composed on top of the exact same access-visibility rules Phase 2
+  established (CLIENT-role membership-only visibility, private-project
+  rank/membership rules) - filtering never widens what a caller could
+  already see.
+- Both are plain substring (`contains`, case-insensitive) `WHERE` filters,
+  not a full-text search index - a deliberate v1 scaffolding choice,
+  adequate for per-project/per-workspace collections at this scale.
+- Frontend: a debounced search box + status/archived dropdowns on
+  `ProjectsPage.tsx`, calling the extended API (workspaces can have many
+  projects, so this filters server-side); a search box + priority/
+  assignee/label dropdowns + an "overdue only" toggle on
+  `KanbanBoardPage.tsx`, filtering the already-fully-fetched board
+  client-side (a project's full task set is small enough that this is
+  simpler and equally correct, per this phase's own scope note above) -
+  both share a `.ph-filter-bar` styling convention.
+- A full light/dark theme system
+  (`apps/web/src/lib/theme.ts`, `components/ThemeToggle.tsx`): every color
+  used anywhere in `styles.css` or in a component's inline styles routes
+  through a CSS custom property, with a dark variant of the full palette
+  (not a `filter: invert()` hack) covering every page and component built
+  in Phases 1-6 (Kanban board, task modal, notifications, activity feed,
+  analytics stat cards/bars/health banner, auth pages). Defaults to
+  `prefers-color-scheme` with no stored preference; an explicit toggle
+  choice (next to the notification bell/logout button in the app shell)
+  is persisted in `localStorage` and forces the chosen theme via
+  `<html data-theme="...">` regardless of system preference.
+- A responsive-polish pass over every page from Phases 1-6, not just new
+  Phase 7 surfaces: topbar wrapping instead of overflow at narrow widths,
+  a clamped/scroll-safe notification dropdown, a narrower Kanban column
+  basis on very small screens, a 2-column stat grid and viewport-clamped
+  toast on small screens, and confirmation that the Phase 2 board
+  horizontal-scroll and task-modal single-column stacking still hold.
+
+**Scaffolded, not exhaustive:** substring search only (no full-text
+index/ranking); the Kanban board's search/filter is client-side against
+an already-fetched board rather than a server round-trip (a deliberate,
+documented simplification for a single project's task set, not a
+limitation of the underlying API, which supports full server-side
+filtering for exactly this reason); no saved/named filter presets.
+
+## Phase 8 — Hardening, docs, backup/restore, production readiness (implemented)
+
+**Goal:** everything that makes the "simple self-hosting" promise
+actually true end-to-end for a stranger cloning this repository for the
+first time - production configuration guidance, backup/restore, and
+finished (not stubbed) policy documents.
+
+**Delivered:**
+
+- `SECURITY.md` fleshed out: a supported-versions statement appropriate
+  for a pre-1.0 project, a private-reporting process (GitHub Security
+  Advisory preferred, placeholder email alternative), an explicit
+  acknowledgment/triage/disclosure-timeline process, and an explicit
+  in-scope/out-of-scope list grounded in this project's actual threat
+  model (workspace isolation, RBAC, real-time room authorization, upload
+  handling, invitation tokens, rate limiting, audit logging, mass
+  assignment).
+- `CONTRIBUTING.md` fleshed out: local dev setup (pointing at README's
+  quick-start and local-dev sections), repository/module layout, the
+  project's non-negotiable security conventions (workspace isolation,
+  `.strict()` input validation, 404-not-403, filters must compose with
+  not replace scoping) restated as explicit contributor expectations,
+  test-running instructions, and PR conventions. A new
+  `CODE_OF_CONDUCT.md` (standard Contributor Covenant v2.1, genuinely
+  generic - no real names) is referenced from it.
+- **Backup/restore:** `scripts/backup.sh` and `scripts/restore.sh` - real,
+  runnable bash scripts (not just documented command sequences) that
+  `pg_dump`/restore the Postgres database and `docker cp`/tar the
+  `uploads` volume out of (and back into) the running `api` container.
+  Documented end-to-end, with exact commands and a "how do I know the
+  backup/restore actually worked" verification checklist, in the new
+  `docs/BACKUP_AND_RESTORE.md`.
+- **Production configuration guidance:** a new `docs/PRODUCTION.md`
+  covering every environment variable that matters for a real deployment
+  (cross-checked against `apps/api/src/config/env.ts` - confirmed
+  `.env.example` already covered every variable introduced through Phase
+  6, including the Phase 4 upload-size/directory variables; no gaps
+  found), concrete nginx **and** Caddy reverse-proxy example configs with
+  correct WebSocket `Upgrade`/`Connection` header forwarding for the
+  Socket.IO real-time layer (explicitly called out as the single most
+  common real-world self-hosting failure point for this stack),
+  HTTPS/`COOKIE_SECURE`/`CORS_ORIGIN` guidance, and a troubleshooting
+  section (DB connection refused, migrations not applied, WebSocket
+  upgrade failing behind a misconfigured proxy, upload failures from a
+  full disk or misconfigured volume).
+- **End-to-end self-host smoke test:** a precise, step-by-step manual QA
+  checklist in `README.md` walking clone -> `.env` configuration ->
+  `docker-compose up -d` -> first-admin setup -> workspace creation ->
+  member invitation -> project/task/board creation -> live real-time
+  updates across two sessions -> comments/mentions/notifications ->
+  attachments -> activity feed -> analytics -> search/filter -> theme
+  toggle -> taking a backup. Docker has not been available in this
+  development environment in any phase, so this checklist has **not**
+  been executed against a real Docker Engine here - stated plainly rather
+  than implied otherwise - but every step maps to a flow already covered
+  by the automated integration test suite.
+- **Final consistency pass:** confirmed `LICENSE` and `NOTICE` are
+  untouched and correct since Phase 1; rewrote the root `README.md`'s
+  feature list and quick-start to accurately reflect everything built
+  through Phase 7 (it previously only described Phase 1); confirmed
+  `docker-compose.yml` and `.env.example` are in sync with every service/
+  env var introduced across all phases (Redis needed no additional
+  Socket.IO-specific configuration beyond the `REDIS_URL` it already had;
+  the `uploads` volume and its mount path were already correctly declared
+  in Phase 4).
+
+**Scaffolded, not exhaustive:** the backup/restore scripts are functional
+and documented, but are a single-node, full-dump strategy (no
+point-in-time recovery, no offsite replication, no backup-file
+encryption) and have not been disaster-tested against every possible
+failure mode (mid-write crash, corrupted volume, cross-major-version
+Postgres upgrade); the security-advisory/contact-email addresses in
+`SECURITY.md`/`CODE_OF_CONDUCT.md` are placeholders that need to be
+replaced with a real monitored inbox before an actual public 1.0 release;
+the self-host smoke test is a documented manual checklist, not an
+automated end-to-end (browser-driven) test suite.

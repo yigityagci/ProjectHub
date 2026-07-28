@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
 import NotificationBell from "../components/NotificationBell.js";
+import ThemeToggle from "../components/ThemeToggle.js";
 import type { CurrentUser } from "../App.js";
 import type { ActivityEvent } from "../components/ActivityFeed.js";
 
@@ -110,7 +111,8 @@ export default function AnalyticsPage({ user }: { user: CurrentUser }) {
     <div className="ph-shell ph-shell-wide">
       <div className="ph-topbar ph-topbar-wide">
         <Brand />
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+        <div className="ph-topbar-actions">
+          <ThemeToggle />
           <NotificationBell />
           <span style={{ fontSize: "0.9rem" }}>{user.displayName}</span>
         </div>

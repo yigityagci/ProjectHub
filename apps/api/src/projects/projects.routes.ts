@@ -3,6 +3,7 @@ import {
   createProjectSchema,
   updateProjectSchema,
   addProjectMemberSchema,
+  projectListQuerySchema,
 } from "@projecthub/shared";
 import type { RoleKey } from "@projecthub/shared";
 import { ValidationError, NotFoundError } from "../core/errors.js";
@@ -81,8 +82,20 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
     "/api/workspaces/:workspaceId/projects",
     { preHandler: [requireAuth, requireMembership] },
     async (req, reply) => {
+      const parsed = projectListQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        throw new ValidationError(parsed.error.issues[0]?.message ?? "Invalid filter parameters.");
+      }
       const roleKey = req.ctx.membership!.role.key as RoleKey;
-      const projects = await listProjectsForUser(req.ctx.workspace!.id, req.ctx.user!.id, roleKey);
+      // req.ctx.workspace!.id always comes from requireMembership's already
+      // -verified :workspaceId — filters below can only narrow this same
+      // workspace's access-filtered project list, never widen it.
+      const projects = await listProjectsForUser(
+        req.ctx.workspace!.id,
+        req.ctx.user!.id,
+        roleKey,
+        parsed.data,
+      );
       return reply.send({ projects: projects.map(serializeProject) });
     },
   );
