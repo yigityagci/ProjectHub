@@ -20,12 +20,23 @@ cp .env.example .env
 docker-compose up -d
 ```
 
-Once the `api` container reports healthy (`docker-compose ps`), the API is
-available at `http://localhost:4000`. Visit `GET /health` and
-`GET /health/ready` to confirm liveness/readiness. Because no user exists
-yet, `GET /api/setup/status` will report `{"needsSetup": true}` — use
-`POST /api/setup` (or the minimal setup page in `apps/web`) to create the
-first administrator account.
+This brings up the database, Redis, the API, and the web UI. Once the
+`api` and `web` containers report healthy (`docker-compose ps`):
+
+- Open `http://localhost:5173` in a browser — this is the web UI. Because
+  no user exists yet, you'll land on a setup page to create the first
+  administrator account (this calls `POST /api/setup` under the hood).
+- The API itself is available at `http://localhost:4000`. Visit `GET /health`
+  and `GET /health/ready` to confirm liveness/readiness directly.
+
+If you change `APP_URL` in `.env` after the first build (e.g. because
+you're deploying behind a different public hostname), rebuild the web
+image so the new value is baked into the browser bundle:
+
+```bash
+docker-compose build web
+docker-compose up -d
+```
 
 ## Local development (without Docker)
 

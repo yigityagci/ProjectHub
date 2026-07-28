@@ -2,6 +2,15 @@ export interface ApiErrorBody {
   error: { code: string; message: string; requestId?: string };
 }
 
+// The API's base URL as reachable from the browser. In local development
+// this is left empty so requests stay relative (`/api/...`) and are
+// forwarded to the API by Vite's dev server proxy (see vite.config.ts). In
+// a production/Docker deployment, the web static files and the API are
+// served from different origins/ports, so this must be baked in at build
+// time via VITE_API_URL (see apps/web/Dockerfile and docker-compose.yml,
+// where it defaults to the same value as the API's own APP_URL).
+const API_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
+
 export class ApiError extends Error {
   code: string;
   status: number;
@@ -24,7 +33,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const csrf = readCookie("ph_csrf");
   if (csrf && method !== "GET") headers["X-CSRF-Token"] = csrf;
 
-  const res = await fetch(path, {
+  const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers,
     credentials: "include",
