@@ -13,15 +13,22 @@ export const PERMISSIONS = [
   "member.remove",
   "role.manage",
 
-  // Projects (schema/routes land in Phase 2; permission strings are
-  // reserved now so the RBAC catalog and default role map are stable)
+  // Projects (Phase 2)
   "project.create",
   "project.edit",
   "project.delete",
+  "project.archive",
+  "project.members.manage",
 
-  // Tasks (Phase 2)
+  // Kanban boards / tasks (Phase 2)
+  "board.manage",
+  "task.create",
+  "task.edit",
   "task.assign",
   "task.delete",
+  "milestone.manage",
+  "label.manage",
+  "dependency.manage",
 
   // Observability
   "analytics.view",

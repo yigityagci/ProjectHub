@@ -1,0 +1,76 @@
+import { z } from "zod";
+
+export const TASK_PRIORITIES = ["low", "medium", "high", "urgent"] as const;
+export type TaskPriority = (typeof TASK_PRIORITIES)[number];
+
+export const taskTitleSchema = z
+  .string({ required_error: "Task title is required." })
+  .trim()
+  .min(1, "Task title is required.")
+  .max(255, "Task title must be between 1 and 255 characters.");
+
+export const taskPrioritySchema = z.enum(TASK_PRIORITIES, {
+  errorMap: () => ({ message: "Invalid task priority." }),
+});
+
+/**
+ * Strict allowlist for task creation. `creatorId`/`projectId`/`workspaceId`
+ * are always derived server-side and never accepted from the client.
+ */
+export const createTaskSchema = z
+  .object({
+    title: taskTitleSchema,
+    description: z.string().trim().max(20000).optional(),
+    columnId: z.string().min(1).optional(),
+    priority: taskPrioritySchema.optional(),
+    parentTaskId: z.string().min(1).nullable().optional(),
+    milestoneId: z.string().min(1).nullable().optional(),
+    startDate: z.coerce.date().nullable().optional(),
+    dueDate: z.coerce.date().nullable().optional(),
+  })
+  .strict();
+export type CreateTaskInput = z.infer<typeof createTaskSchema>;
+
+/**
+ * `version` is REQUIRED on every update, but is only ever used as an
+ * optimistic-concurrency WHERE precondition server-side — it is never
+ * written back to the row verbatim (the row's stored version is always
+ * bumped via `{ increment: 1 }`).
+ */
+export const updateTaskSchema = z
+  .object({
+    version: z.number().int().nonnegative({ message: "version is required." }),
+    title: taskTitleSchema.optional(),
+    description: z.string().trim().max(20000).nullable().optional(),
+    priority: taskPrioritySchema.optional(),
+    parentTaskId: z.string().min(1).nullable().optional(),
+    milestoneId: z.string().min(1).nullable().optional(),
+    startDate: z.coerce.date().nullable().optional(),
+    dueDate: z.coerce.date().nullable().optional(),
+  })
+  .strict();
+export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
+
+export const moveTaskSchema = z
+  .object({
+    version: z.number().int().nonnegative({ message: "version is required." }),
+    columnId: z.string().min(1, "columnId is required."),
+    beforeTaskId: z.string().min(1).nullable().optional(),
+    afterTaskId: z.string().min(1).nullable().optional(),
+  })
+  .strict();
+export type MoveTaskInput = z.infer<typeof moveTaskSchema>;
+
+export const addAssigneeSchema = z
+  .object({
+    userId: z.string().min(1, "userId is required."),
+  })
+  .strict();
+export type AddAssigneeInput = z.infer<typeof addAssigneeSchema>;
+
+export const createDependencySchema = z
+  .object({
+    blockingTaskId: z.string().min(1, "blockingTaskId is required."),
+  })
+  .strict();
+export type CreateDependencyInput = z.infer<typeof createDependencySchema>;

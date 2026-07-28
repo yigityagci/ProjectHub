@@ -66,8 +66,16 @@ const ADMIN_PERMISSIONS: Permission[] = [
   "project.create",
   "project.edit",
   "project.delete",
+  "project.archive",
+  "project.members.manage",
+  "board.manage",
+  "task.create",
+  "task.edit",
   "task.assign",
   "task.delete",
+  "milestone.manage",
+  "label.manage",
+  "dependency.manage",
   "analytics.view",
   "audit.view",
   "workspace.settings.manage",
@@ -76,13 +84,21 @@ const ADMIN_PERMISSIONS: Permission[] = [
 const PROJECT_MANAGER_PERMISSIONS: Permission[] = [
   "project.create",
   "project.edit",
+  "project.archive",
+  "project.members.manage",
+  "board.manage",
+  "task.create",
+  "task.edit",
   "task.assign",
   "task.delete",
+  "milestone.manage",
+  "label.manage",
+  "dependency.manage",
   "analytics.view",
   "member.invite",
 ];
 
-const MEMBER_PERMISSIONS: Permission[] = ["task.assign"];
+const MEMBER_PERMISSIONS: Permission[] = ["task.create", "task.edit", "task.assign"];
 
 const VIEWER_PERMISSIONS: Permission[] = [];
 

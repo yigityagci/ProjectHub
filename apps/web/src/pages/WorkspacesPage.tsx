@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
 import type { CurrentUser } from "../App.js";
@@ -83,7 +84,9 @@ export default function WorkspacesPage({
           <ul className="ph-workspace-list">
             {workspaces.map((ws) => (
               <li key={ws.id}>
-                <span>{ws.name}</span>
+                <Link to={`/workspace/${ws.id}/projects`} style={{ color: "inherit", textDecoration: "none" }}>
+                  {ws.name}
+                </Link>
                 <span className="ph-role-badge">{ws.role}</span>
               </li>
             ))}

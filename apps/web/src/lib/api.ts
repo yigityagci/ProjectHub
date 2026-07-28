@@ -14,10 +14,15 @@ const API_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
 export class ApiError extends Error {
   code: string;
   status: number;
-  constructor(status: number, code: string, message: string) {
+  // The full parsed JSON response body, when present. Some error responses
+  // carry additional fields beyond `error` (e.g. the 409 VERSION_CONFLICT
+  // response's `currentTask`), which callers can read from here.
+  body?: unknown;
+  constructor(status: number, code: string, message: string, body?: unknown) {
     super(message);
     this.status = status;
     this.code = code;
+    this.body = body;
   }
 }
 
@@ -45,7 +50,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
   if (!res.ok) {
     const err = json as ApiErrorBody;
-    throw new ApiError(res.status, err.error?.code ?? "UNKNOWN", err.error?.message ?? "Something went wrong.");
+    throw new ApiError(
+      res.status,
+      err.error?.code ?? "UNKNOWN",
+      err.error?.message ?? "Something went wrong.",
+      json,
+    );
   }
 
   return json as T;

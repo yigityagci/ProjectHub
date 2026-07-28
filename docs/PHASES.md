@@ -1,8 +1,8 @@
 # ProjectHub Phase Roadmap
 
 ProjectHub's full v1 scope is delivered incrementally across eight
-phases. This document describes each phase's intent. Phase 1 is
-implemented in this repository today; Phases 2-8 are planned and
+phases. This document describes each phase's intent. Phases 1 and 2 are
+implemented in this repository today; Phases 3-8 are planned and
 described at a level sufficient to guide future work, without
 prescribing implementation details that belong to their own planning
 pass.
@@ -50,19 +50,57 @@ notifications, attachments; activity feed generation (only the security
 audit log); analytics/health-status; search/filter/theming polish;
 backup/restore; full production hardening docs.
 
-## Phase 2 — Projects, Tasks, Subtasks, Kanban CRUD
+## Phase 2 — Projects, Tasks, Subtasks, Kanban CRUD (implemented)
 
-Introduces `Project`, `ProjectMembership`, `BoardColumn`/`Status`,
-`Task` (with `parentTaskId` for subtasks), `Label`/`TaskLabel`,
-`TaskAssignee`, and `Milestone`. Extends the workspace-isolation test
-suite built in Phase 1 down to tasks (every task query filters by the
-denormalized `workspaceId`, and cross-project/cross-workspace access
-returns 404 the same way cross-workspace access does today). Implements
-full optimistic concurrency on `Task` via a `version` column: conditional
-updates that lose the race return `409 Conflict` rather than silently
-overwriting a concurrent edit. Kanban board CRUD (columns, ordering,
-moving tasks between columns) and drag-and-drop groundwork (`@dnd-kit` on
-the frontend) land here.
+**Goal:** full project/task/Kanban CRUD on top of the Phase 1
+workspace/RBAC foundation, with project-level access control layered on
+top of workspace membership, optimistic concurrency on tasks, and a
+working drag-and-drop board in the frontend.
+
+**Delivered:**
+
+- `Project`, `ProjectMembership`, `BoardColumn`, `Task` (with
+  `parentTaskId` for one-level-deep subtasks), `Label`/`TaskLabel`,
+  `TaskAssignee`, `Milestone`, and `TaskDependency` models — all
+  workspace-scoped with a denormalized `workspaceId` on every table,
+  cascading from `Workspace`, matching Phase 1's schema conventions.
+- A second access-control layer (`requireProjectAccess`) on top of
+  Phase 1's `requireMembership`: workspace-visible projects are open to
+  any active workspace member; private projects require a
+  `ProjectMembership` row or a role ranked at or above Project Manager;
+  Client-role users always require an explicit `ProjectMembership` row
+  regardless of visibility. Every denial path returns `404`, never
+  `403`, so unauthorized callers can't distinguish "doesn't exist" from
+  "exists but you can't see it" — the same invariant Phase 1 established
+  for workspaces.
+- A new permission catalog slice (`project.archive`,
+  `project.members.manage`, `board.manage`, `task.create`, `task.edit`,
+  `milestone.manage`, `label.manage`, `dependency.manage`) layered onto
+  the existing six system roles: Admin and Project Manager get full
+  project/board/task management (Project Manager still cannot delete a
+  project — that stays Admin/Owner only); Member can create and edit
+  tasks but not delete them or manage boards/labels/milestones/
+  dependencies; Viewer and Client remain strictly read-only.
+- Full REST CRUD for projects, project members, board columns (with
+  fractional-position ordering and transactional reorder/rebalance),
+  tasks, task assignees, task labels, milestones, and task dependencies.
+- Mandatory optimistic concurrency on every task update/move via a
+  `version` column: the client-supplied version is used only as a WHERE
+  precondition (never persisted as a plain write), and a lost race
+  returns `409 VERSION_CONFLICT` with the current server-side task
+  attached, instead of silently overwriting a concurrent edit.
+- Server-side cycle prevention on task dependencies (DFS over existing
+  edges before inserting a new one, self-dependency rejected) and
+  strict one-level-only subtask nesting validation.
+- Kanban board frontend: a projects list page, a drag-and-drop board
+  (`@dnd-kit`) that calls the real move-task API on drop and reverts
+  with a toast on failure, and a task detail modal (title, description,
+  priority, dates, assignees, labels, subtasks, dependencies) with a
+  conflict banner + reload-and-discard flow when a `409` is received.
+- Extended the workspace-isolation test suite from Phase 1 down to
+  every new resource type: cross-workspace and cross-project access
+  attempts return `404` the same way cross-workspace access does for
+  Phase 1 resources.
 
 ## Phase 3 — Real-time layer
 

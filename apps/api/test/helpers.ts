@@ -18,6 +18,15 @@ export async function resetDatabase(): Promise<void> {
     TRUNCATE TABLE
       "audit_log_entries",
       "invitations",
+      "task_dependencies",
+      "task_labels",
+      "labels",
+      "task_assignees",
+      "tasks",
+      "milestones",
+      "board_columns",
+      "project_memberships",
+      "projects",
       "workspace_memberships",
       "role_permissions",
       "roles",
@@ -167,6 +176,61 @@ export async function createWorkspaceAs(
     throw new Error(`Create workspace failed: ${res.statusCode} ${res.body}`);
   }
   return res.json().workspace;
+}
+
+/**
+ * Invites `email` into `workspaceId` with `roleKey`, registers/logs in a new
+ * user for that email, and accepts the invitation. Returns a logged-in
+ * TestClient for that member.
+ */
+export async function inviteAndAccept(
+  app: FastifyInstance,
+  owner: TestClient,
+  workspaceId: string,
+  email: string,
+  roleKey: string,
+): Promise<TestClient> {
+  const token = await captureInvitationToken(() =>
+    owner.post(`/api/workspaces/${workspaceId}/invitations`, { email, roleKey }),
+  );
+  const member = await registerAndLogin(app, email);
+  const acceptRes = await member.post(`/api/invitations/${token}/accept`);
+  if (acceptRes.statusCode !== 200) {
+    throw new Error(`Accept failed: ${acceptRes.statusCode} ${acceptRes.body}`);
+  }
+  return member;
+}
+
+export async function getMemberUserId(
+  client: TestClient,
+  workspaceId: string,
+  email: string,
+): Promise<string> {
+  const res = await client.get(`/api/workspaces/${workspaceId}/members`);
+  const members = res.json().members as Array<{ email: string; userId: string }>;
+  const found = members.find((m) => m.email === email);
+  if (!found) throw new Error(`member ${email} not found`);
+  return found.userId;
+}
+
+export interface CreatedProject {
+  id: string;
+  name: string;
+  status: string;
+  visibility: string;
+}
+
+export async function createProjectAs(
+  client: TestClient,
+  workspaceId: string,
+  name: string,
+  extra: Record<string, unknown> = {},
+): Promise<CreatedProject> {
+  const res = await client.post(`/api/workspaces/${workspaceId}/projects`, { name, ...extra });
+  if (res.statusCode !== 201) {
+    throw new Error(`Create project failed: ${res.statusCode} ${res.body}`);
+  }
+  return res.json().project;
 }
 
 /**

@@ -3,3 +3,8 @@ export * from "./roles.js";
 export * from "./dto/auth.js";
 export * from "./dto/workspace.js";
 export * from "./dto/invitation.js";
+export * from "./dto/project.js";
+export * from "./dto/board.js";
+export * from "./dto/task.js";
+export * from "./dto/label.js";
+export * from "./dto/milestone.js";

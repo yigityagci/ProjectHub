@@ -1,4 +1,12 @@
-import type { Role, RolePermission, User, Workspace, WorkspaceMembership } from "@prisma/client";
+import type {
+  Project,
+  ProjectMembership,
+  Role,
+  RolePermission,
+  User,
+  Workspace,
+  WorkspaceMembership,
+} from "@prisma/client";
 
 export interface AuthenticatedUser {
   id: string;
@@ -13,6 +21,8 @@ export interface RequestContext {
   workspace?: Workspace;
   membership?: WorkspaceMembership & { role: Role & { permissions: RolePermission[] } };
   permissions?: Set<string>;
+  project?: Project;
+  projectMembership?: ProjectMembership | null;
 }
 
 export function toAuthenticatedUser(user: User): AuthenticatedUser {

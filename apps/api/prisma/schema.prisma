@@ -40,6 +40,31 @@ enum InvitationStatus {
   expired
 }
 
+enum ProjectStatus {
+  planning
+  active
+  on_hold
+  completed
+}
+
+enum ProjectVisibility {
+  workspace
+  private
+}
+
+enum TaskPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+enum ColumnCategory {
+  todo
+  in_progress
+  done
+}
+
 model User {
   id              String     @id @default(uuid())
   email           String     @unique
@@ -57,6 +82,11 @@ model User {
   sentInvitations      Invitation[]        @relation("InvitationInvitedBy")
   acceptedInvitations  Invitation[]        @relation("InvitationAcceptedBy")
   auditLogEntries      AuditLogEntry[]
+
+  ownedProjects        Project[]           @relation("ProjectOwner")
+  projectMemberships   ProjectMembership[]
+  createdTasks         Task[]              @relation("TaskCreator")
+  taskAssignments      TaskAssignee[]
 
   @@map("users")
 }
@@ -93,6 +123,16 @@ model Workspace {
   memberships WorkspaceMembership[]
   invitations Invitation[]
   auditLogEntries AuditLogEntry[]
+
+  projects           Project[]
+  projectMemberships ProjectMembership[]
+  boardColumns       BoardColumn[]
+  tasks              Task[]
+  taskAssignees      TaskAssignee[]
+  labels             Label[]
+  taskLabels         TaskLabel[]
+  milestones         Milestone[]
+  taskDependencies   TaskDependency[]
 
   @@index([ownerId])
   @@map("workspaces")
@@ -180,4 +220,198 @@ model AuditLogEntry {
   @@index([workspaceId, createdAt])
   @@index([action])
   @@map("audit_log_entries")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 — Projects, Tasks, Subtasks, Kanban CRUD
+// ---------------------------------------------------------------------------
+
+model Project {
+  id          String            @id @default(uuid())
+  workspaceId String
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  ownerId     String
+  owner       User              @relation("ProjectOwner", fields: [ownerId], references: [id])
+  status      ProjectStatus     @default(planning)
+  visibility  ProjectVisibility @default(workspace)
+  startDate   DateTime?
+  targetDate  DateTime?
+  archived    Boolean           @default(false)
+  archivedAt  DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  memberships  ProjectMembership[]
+  columns      BoardColumn[]
+  tasks        Task[]
+  labels       Label[]
+  milestones   Milestone[]
+  dependencies TaskDependency[]
+
+  @@index([workspaceId])
+  @@index([ownerId])
+  @@map("projects")
+}
+
+model ProjectMembership {
+  id          String   @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([projectId, userId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@map("project_memberships")
+}
+
+model BoardColumn {
+  id          String         @id @default(uuid())
+  workspaceId String
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId   String
+  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  category    ColumnCategory
+  position    Float
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  tasks Task[]
+
+  @@unique([projectId, name])
+  @@index([workspaceId])
+  @@index([projectId, position])
+  @@map("board_columns")
+}
+
+model Task {
+  id           String       @id @default(uuid())
+  workspaceId  String
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId    String
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  columnId     String
+  column       BoardColumn  @relation(fields: [columnId], references: [id], onDelete: Restrict)
+  parentTaskId String?
+  parentTask   Task?        @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  subtasks     Task[]       @relation("TaskSubtasks")
+  milestoneId  String?
+  milestone    Milestone?   @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+  title        String
+  description  String?
+  priority     TaskPriority @default(medium)
+  position     Float
+  creatorId    String
+  creator      User         @relation("TaskCreator", fields: [creatorId], references: [id])
+  startDate    DateTime?
+  dueDate      DateTime?
+  version      Int          @default(1)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  assignees          TaskAssignee[]
+  labels             TaskLabel[]
+  blockedByEdges     TaskDependency[] @relation("TaskBlocked")
+  blockingEdges      TaskDependency[] @relation("TaskBlocking")
+
+  @@index([workspaceId])
+  @@index([projectId, columnId, position])
+  @@index([parentTaskId])
+  @@index([milestoneId])
+  @@index([creatorId])
+  @@map("tasks")
+}
+
+model TaskAssignee {
+  id          String   @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  taskId      String
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedAt  DateTime @default(now())
+
+  @@unique([taskId, userId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@map("task_assignees")
+}
+
+model Label {
+  id          String   @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  color       String
+  createdAt   DateTime @default(now())
+
+  taskLabels TaskLabel[]
+
+  @@unique([projectId, name])
+  @@index([workspaceId])
+  @@map("labels")
+}
+
+model TaskLabel {
+  id          String   @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  taskId      String
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  labelId     String
+  label       Label    @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, labelId])
+  @@index([workspaceId])
+  @@index([labelId])
+  @@map("task_labels")
+}
+
+model Milestone {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  targetDate  DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tasks Task[]
+
+  @@index([workspaceId])
+  @@index([projectId])
+  @@map("milestones")
+}
+
+model TaskDependency {
+  id             String   @id @default(uuid())
+  workspaceId    String
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId      String
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  blockedTaskId  String
+  blockedTask    Task     @relation("TaskBlocked", fields: [blockedTaskId], references: [id], onDelete: Cascade)
+  blockingTaskId String
+  blockingTask   Task     @relation("TaskBlocking", fields: [blockingTaskId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+
+  @@unique([blockedTaskId, blockingTaskId])
+  @@index([workspaceId])
+  @@index([projectId])
+  @@index([blockingTaskId])
+  @@map("task_dependencies")
 }
