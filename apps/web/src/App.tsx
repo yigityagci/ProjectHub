@@ -8,6 +8,7 @@ import WorkspacesPage from "./pages/WorkspacesPage.js";
 import InviteAcceptPage from "./pages/InviteAcceptPage.js";
 import ProjectsPage from "./pages/ProjectsPage.js";
 import KanbanBoardPage from "./pages/KanbanBoardPage.js";
+import AnalyticsPage from "./pages/AnalyticsPage.js";
 
 export interface CurrentUser {
   id: string;
@@ -103,6 +104,10 @@ export default function App() {
       <Route
         path="/workspace/:workspaceId/projects/:projectId/board"
         element={user ? <KanbanBoardPage user={user} /> : <Navigate to="/login" replace />}
+      />
+      <Route
+        path="/workspace/:workspaceId/projects/:projectId/analytics"
+        element={user ? <AnalyticsPage user={user} /> : <Navigate to="/login" replace />}
       />
       <Route
         path="/"

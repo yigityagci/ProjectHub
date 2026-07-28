@@ -23,6 +23,7 @@ export interface Task {
   creatorId: string;
   startDate: string | null;
   dueDate: string | null;
+  completedAt: string | null;
   version: number;
   createdAt: string;
   updatedAt: string;

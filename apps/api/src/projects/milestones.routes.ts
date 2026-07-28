@@ -63,6 +63,7 @@ export async function registerMilestoneRoutes(app: FastifyInstance): Promise<voi
         req.ctx.project!.id,
         milestoneId,
         parsed.data,
+        { id: req.ctx.user!.id, displayName: req.ctx.user!.displayName },
       );
       return reply.send({ milestone });
     },

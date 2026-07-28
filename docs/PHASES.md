@@ -227,25 +227,114 @@ comment editing (create/delete only); no attachment thumbnails/previews;
 `comment_reply` notifications aren't generated yet (no reply-threading
 model in this phase).
 
-## Phase 5 — Activity feed + audit log expansion
+## Phase 5 — Activity feed + audit log expansion (implemented)
 
-The security-focused `AuditLogEntry` log from Phase 1 continues to
-capture administrative/security events. This phase adds the
-user-facing **activity feed** (`ActivityEvent`) for ordinary project
-activity (task created/moved/completed, comment posted, member added to
-a project, etc.), scoped and filtered per project/workspace with the
-same isolation guarantees as every other resource.
+**Goal:** a separate, user-facing **activity feed** for ordinary project
+events, parallel to (and never touching) the Phase 1 security/audit log.
 
-## Phase 6 — Analytics + rule-based explainable health status
+**Delivered:**
 
-Adds an analytics dashboard (throughput, completion trends, workload
-distribution) and a rule-based, explainable project health-status engine
-that classifies projects as On Track / At Risk / Delayed with
-human-readable reasons (e.g. "3 tasks overdue", "no activity in 10
-days") rather than an opaque score — consistent with the product's
-"explainable" requirement. Analytics queries use raw parameterized SQL
-where Prisma's query builder isn't a good fit, per the Phase 0
-technology selection.
+- `ActivityEvent` model — workspace-scoped with a denormalized
+  `workspaceId`, cascading from `Workspace`/`Project`, `actorId` FK to
+  `User` — matching Phase 1/2/4's schema conventions. Real Prisma
+  migration
+  (`prisma/migrations/20260728155246_phase5_activity_events_phase6_task_completed_at`,
+  combined with the Phase 6 `Task.completedAt` column since both landed in
+  the same pass).
+- A deliberately small `ActivityEventType` catalog: `task_created`,
+  `task_moved`, `task_assigned`, `comment_added`, `milestone_completed`.
+  This is explicitly not exhaustive — member-added-to-project, label
+  changes, and similar events are not covered in this v1 pass.
+- Every event's `payload` denormalizes human-readable context (task
+  title, from/to column names, actor display name, assignee display name,
+  milestone name) at creation time, so the feed never needs to re-join to
+  Task/BoardColumn/User at render time — those rows may change or be
+  deleted later, but the feed entry stays accurate to what happened.
+- Activity-event creation is hooked directly into the existing Phase 2/4
+  mutation services, immediately after (and in the task-create/
+  comment-add/milestone-complete cases, in the same `$transaction` as) the
+  primary persistence — never before it, and the real-time broadcast only
+  fires after the write (and its transaction, if any) has actually
+  committed, so a rolled-back mutation can never produce a phantom live
+  event.
+- `GET /api/workspaces/:workspaceId/projects/:projectId/activity`
+  (cursor-paginated, most-recent-first), gated by the same
+  `requireMembership` + `requireProjectAccess` read-access rules as
+  everything else in the project — Viewer/Client included, since this is
+  read-only. Cross-workspace/cross-project access returns 404 like every
+  other resource.
+- A new `activity.created` real-time event broadcast to the project's
+  existing Socket.IO room.
+- Frontend: an "Activity" tab on the Kanban board page
+  (`KanbanBoardPage.tsx` renders the new `components/ActivityFeed.tsx`)
+  showing a simple reverse-chronological list ("Alice created task
+  ...", "Bob moved ... from To Do to Done", ...), live-updating via
+  `activity.created`.
+
+## Phase 6 — Analytics + rule-based explainable health status (implemented)
+
+**Goal:** real operational metrics computed from actual task/dependency/
+milestone data, plus a deterministic, rule-based (not AI-based) project
+health-status classification with a human-readable, data-backed
+explanation.
+
+**Delivered:**
+
+- `Task.completedAt` column, set the moment a task's column transitions
+  into a `done`-category column (in `moveTask`) and cleared if it's moved
+  back out — the single source of truth every completion-time metric
+  depends on (not `updatedAt`, which changes on unrelated edits too).
+- `GET /api/workspaces/:workspaceId/projects/:projectId/analytics`, gated
+  by `requireMembership` + `requireProjectAccess` + the existing
+  `analytics.view` permission (already granted to
+  OWNER/ADMIN/PROJECT_MANAGER since Phase 1/2 — confirmed unchanged, no
+  new roles were granted access). Returns: total/completed/overdue/blocked
+  task counts and completion percentage; tasks completed per day over the
+  last 30 days; open-task workload per assignee; tasks grouped by status
+  (board column) and by priority; average task completion time
+  (`completedAt - createdAt`, mean over completed tasks); per-milestone
+  task totals/completed/percentage; overall project progress percentage;
+  and the most recent Phase 5 activity events.
+- The 30-day completed-over-time series uses raw parameterized SQL
+  (`$queryRaw` with a tagged template, `generate_series` + a date-truncated
+  join) since a zero-filled daily bucket series is a clearly better fit for
+  SQL than reconstructing the calendar in JS; every other metric uses a
+  single `Task.findMany` pass aggregated in JS, which is simpler and
+  equally clear for these small, per-project collections — a deliberate
+  per-query judgment call rather than forcing raw SQL everywhere.
+- **Rule-based health-status engine**
+  (`apps/api/src/analytics/health-status.ts`), isolated from the rest of
+  analytics so its thresholds are easy to find and adjust:
+  classifies each project as `on_track` / `at_risk` / `delayed` from fixed,
+  named thresholds — `delayed` if more than 40% of open tasks are overdue,
+  OR a high/urgent-priority task has been blocked (via an incomplete
+  `TaskDependency`) for more than 7 days, OR the project's `targetDate` has
+  passed with incomplete tasks remaining; `at_risk` (checked only if not
+  already `delayed`) if more than 20% of open tasks are overdue, OR any
+  URGENT-priority task is currently blocked (or 2+ high-priority tasks are
+  blocked), OR milestone completion trails the project's elapsed
+  start-to-target-date timeline by more than 20 percentage points;
+  otherwise `on_track`. Every response includes a human-readable
+  `explanation` string built dynamically from the exact numbers that
+  triggered the classification (e.g. "This project is marked At Risk
+  because 3 of 12 open tasks are overdue (25%) and an urgent-priority task
+  is currently blocked."), never a canned template. These thresholds are a
+  defensible v1 default, not tuned against real usage data — there isn't
+  any yet.
+- Frontend: `AnalyticsPage.tsx`, reachable via an "Analytics" link from the
+  Kanban board's subnav, showing the health-status badge and explanation
+  prominently at the top, followed by plain stat cards, simple bar rows
+  (workload/status/priority/milestone progress), and a small sparkline for
+  the 30-day completion trend — no charting library, matching the existing
+  minimal `ph-*` CSS approach.
+
+**Scaffolded, not exhaustive:** the health-status thresholds are a
+reasonable, documented v1 default meant to be revisited once there's real
+usage data to tune against, not a claim of optimality; "blocked since" is
+approximated from the blocking `TaskDependency` edge's `createdAt` (no
+separate "became blocked at" timestamp exists); milestone-pace elapsed-time
+is measured against the project's own `startDate`/`targetDate`, not each
+milestone's individual target date.
 
 ## Phase 7 — Search/filter, light/dark mode, responsive polish
 

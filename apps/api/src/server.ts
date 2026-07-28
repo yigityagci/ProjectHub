@@ -26,6 +26,8 @@ import { registerMilestoneRoutes } from "./projects/milestones.routes.js";
 import { registerCommentRoutes } from "./comments/comments.routes.js";
 import { registerAttachmentRoutes } from "./attachments/attachments.routes.js";
 import { registerNotificationRoutes } from "./notifications/notifications.routes.js";
+import { registerActivityRoutes } from "./activity/activity.routes.js";
+import { registerAnalyticsRoutes } from "./analytics/analytics.routes.js";
 import { initRealtime } from "./realtime/realtime.js";
 
 export async function buildServer(): Promise<FastifyInstance> {
@@ -126,6 +128,8 @@ export async function buildServer(): Promise<FastifyInstance> {
   await registerCommentRoutes(app);
   await registerAttachmentRoutes(app);
   await registerNotificationRoutes(app);
+  await registerActivityRoutes(app);
+  await registerAnalyticsRoutes(app);
 
   initRealtime(app);
 

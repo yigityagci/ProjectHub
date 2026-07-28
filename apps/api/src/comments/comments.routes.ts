@@ -51,6 +51,7 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
         projectId: req.ctx.project!.id,
         taskId,
         authorId: req.ctx.user!.id,
+        authorDisplayName: req.ctx.user!.displayName,
         input: parsed.data,
       });
       return reply.code(201).send({ comment });

@@ -570,3 +570,170 @@ body {
   align-items: center;
   gap: 1rem;
 }
+
+/* Phase 5/6: board sub-navigation (Activity / Analytics tabs), the
+   activity feed list, and the analytics dashboard's stat cards / bars /
+   health-status badge. Deliberately plain — matches the existing minimal
+   ph-* approach rather than pulling in a charting library. */
+
+.ph-subnav {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.75rem 0 1.25rem;
+}
+
+.ph-subnav a,
+.ph-subnav .ph-subnav-link {
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  border: 1px solid var(--ph-border);
+  color: inherit;
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+
+.ph-subnav a.ph-subnav-active {
+  background: var(--ph-primary);
+  border-color: var(--ph-primary);
+  color: white;
+}
+
+.ph-activity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ph-activity-list li {
+  padding: 0.6rem 0.25rem;
+  border-bottom: 1px solid var(--ph-border);
+  font-size: 0.85rem;
+}
+
+.ph-activity-list li:last-child {
+  border-bottom: none;
+}
+
+.ph-activity-time {
+  color: #64748b;
+  font-size: 0.72rem;
+  display: block;
+  margin-top: 0.15rem;
+}
+
+.ph-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.ph-stat-card {
+  background: var(--ph-surface);
+  border: 1px solid var(--ph-border);
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+}
+
+.ph-stat-card .ph-stat-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  display: block;
+}
+
+.ph-stat-card .ph-stat-label {
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.ph-health-banner {
+  border-radius: 10px;
+  padding: 1rem 1.1rem;
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--ph-border);
+}
+
+.ph-health-banner.ph-health-on_track {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: var(--ph-success);
+}
+.ph-health-banner.ph-health-at_risk {
+  background: rgba(251, 191, 36, 0.15);
+  border-color: var(--ph-warning);
+}
+.ph-health-banner.ph-health-delayed {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: var(--ph-error);
+}
+
+.ph-health-label {
+  display: inline-block;
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  margin-bottom: 0.5rem;
+}
+.ph-health-on_track .ph-health-label {
+  background: var(--ph-success);
+  color: white;
+}
+.ph-health-at_risk .ph-health-label {
+  background: var(--ph-warning);
+  color: #1e293b;
+}
+.ph-health-delayed .ph-health-label {
+  background: var(--ph-error);
+  color: white;
+}
+
+.ph-health-explanation {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.ph-bar-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 3rem;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.82rem;
+  margin-bottom: 0.4rem;
+}
+
+.ph-bar-track {
+  background: var(--ph-bg);
+  border: 1px solid var(--ph-border);
+  border-radius: 999px;
+  height: 10px;
+  overflow: hidden;
+}
+
+.ph-bar-fill {
+  height: 100%;
+  background: var(--ph-primary);
+  border-radius: 999px;
+}
+
+.ph-analytics-section {
+  margin-bottom: 1.75rem;
+}
+
+.ph-analytics-section h2 {
+  font-size: 0.95rem;
+  margin: 0 0 0.6rem;
+}
+
+.ph-sparkline {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 60px;
+}
+
+.ph-sparkline-bar {
+  flex: 1;
+  background: var(--ph-primary);
+  border-radius: 2px 2px 0 0;
+  min-height: 2px;
+}

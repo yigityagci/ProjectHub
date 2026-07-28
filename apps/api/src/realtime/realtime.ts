@@ -182,7 +182,8 @@ export type BroadcastEvent =
   | "comment.deleted"
   | "attachment.created"
   | "attachment.deleted"
-  | "notification.created";
+  | "notification.created"
+  | "activity.created";
 
 /** Broadcasts to every socket in a project's room. Never called before persistence. */
 export function emitToProject(projectId: string, event: BroadcastEvent, payload: unknown): void {

@@ -29,6 +29,8 @@ import {
 import { listDependencies, createDependency, removeDependency } from "./dependencies.service.js";
 import { emitToProject } from "../realtime/realtime.js";
 import { createNotification } from "../notifications/notifications.service.js";
+import { createActivityEvent, broadcastActivityEvent } from "../activity/activity.service.js";
+import { prisma } from "../core/prisma.js";
 
 interface TaskWithRelations {
   id: string;
@@ -43,6 +45,7 @@ interface TaskWithRelations {
   creatorId: string;
   startDate: Date | null;
   dueDate: Date | null;
+  completedAt: Date | null;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -64,6 +67,7 @@ function serializeTask(task: TaskWithRelations) {
     creatorId: task.creatorId,
     startDate: task.startDate,
     dueDate: task.dueDate,
+    completedAt: task.completedAt,
     version: task.version,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
@@ -110,6 +114,7 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
         workspaceId: req.ctx.workspace!.id,
         projectId: req.ctx.project!.id,
         creatorId: req.ctx.user!.id,
+        creatorDisplayName: req.ctx.user!.displayName,
         input: parsed.data,
       });
       const serialized = serializeTask(task);
@@ -184,7 +189,10 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
       }
       const { taskId } = req.params as { taskId: string };
 
-      const result = await moveTask(req.ctx.workspace!.id, req.ctx.project!.id, taskId, parsed.data);
+      const result = await moveTask(req.ctx.workspace!.id, req.ctx.project!.id, taskId, parsed.data, {
+        id: req.ctx.user!.id,
+        displayName: req.ctx.user!.displayName,
+      });
 
       if (result.conflict) {
         return reply.code(409).send({
@@ -243,6 +251,24 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
       await addAssignee(req.ctx.workspace!.id, req.ctx.project!.id, taskId, parsed.data.userId);
       const updatedTask = await getTaskOrThrow(req.ctx.workspace!.id, req.ctx.project!.id, taskId);
       emitToProject(req.ctx.project!.id, "task.updated", serializeTask(updatedTask));
+
+      const assigneeDisplayName =
+        updatedTask.assignees.find((a) => a.userId === parsed.data.userId)?.user.displayName ?? "Unknown";
+      const activityEvent = await createActivityEvent(prisma, {
+        workspaceId: req.ctx.workspace!.id,
+        projectId: req.ctx.project!.id,
+        actorId: req.ctx.user!.id,
+        type: "task_assigned",
+        payload: {
+          taskId,
+          taskTitle: updatedTask.title,
+          assigneeId: parsed.data.userId,
+          assigneeDisplayName,
+          actorDisplayName: req.ctx.user!.displayName,
+        },
+      });
+      broadcastActivityEvent(activityEvent);
+
       if (parsed.data.userId !== req.ctx.user!.id) {
         await createNotification({
           workspaceId: req.ctx.workspace!.id,

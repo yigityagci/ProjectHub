@@ -15,6 +15,7 @@ import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
 import { getSocket, joinWorkspaceRoom, joinProjectRoom, leaveProjectRoom } from "../lib/socket.js";
 import NotificationBell from "../components/NotificationBell.js";
+import ActivityFeed from "../components/ActivityFeed.js";
 import TaskDetailModal from "./TaskDetailModal.js";
 import type { CurrentUser } from "../App.js";
 import type { Task } from "./task-types.js";
@@ -93,6 +94,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
   const [toast, setToast] = useState<{ message: string; error?: boolean } | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [newTaskTitleByColumn, setNewTaskTitleByColumn] = useState<Record<string, string>>({});
+  const [view, setView] = useState<"board" | "activity">("board");
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -302,7 +304,29 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
           </div>
         </div>
 
-        {columns === null ? (
+        <div className="ph-subnav">
+          <button
+            type="button"
+            className={`ph-subnav-link${view === "board" ? " ph-subnav-active" : ""}`}
+            onClick={() => setView("board")}
+          >
+            Board
+          </button>
+          <button
+            type="button"
+            className={`ph-subnav-link${view === "activity" ? " ph-subnav-active" : ""}`}
+            onClick={() => setView("activity")}
+          >
+            Activity
+          </button>
+          <Link className="ph-subnav-link" to={`/workspace/${workspaceId}/projects/${projectId}/analytics`}>
+            Analytics
+          </Link>
+        </div>
+
+        {view === "activity" ? (
+          workspaceId && projectId ? <ActivityFeed workspaceId={workspaceId} projectId={projectId} /> : null
+        ) : columns === null ? (
           <p>Loading...</p>
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>

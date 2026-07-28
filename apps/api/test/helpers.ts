@@ -18,6 +18,7 @@ export async function resetDatabase(): Promise<void> {
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
       "audit_log_entries",
+      "activity_events",
       "invitations",
       "notifications",
       "mentions",

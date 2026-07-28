@@ -71,6 +71,14 @@ enum NotificationType {
   comment_reply
 }
 
+enum ActivityEventType {
+  task_created
+  task_moved
+  task_assigned
+  comment_added
+  milestone_completed
+}
+
 model User {
   id              String     @id @default(uuid())
   email           String     @unique
@@ -98,6 +106,7 @@ model User {
   mentionsReceived     Mention[]           @relation("MentionedUser")
   notifications        Notification[]      @relation("NotificationRecipient")
   attachmentsUploaded  Attachment[]        @relation("AttachmentUploader")
+  activityEvents       ActivityEvent[]     @relation("ActivityEventActor")
 
   @@map("users")
 }
@@ -149,6 +158,7 @@ model Workspace {
   mentions      Mention[]
   notifications Notification[]
   attachments   Attachment[]
+  activityEvents ActivityEvent[]
 
   @@index([ownerId])
   @@map("workspaces")
@@ -265,6 +275,7 @@ model Project {
   labels       Label[]
   milestones   Milestone[]
   dependencies TaskDependency[]
+  activityEvents ActivityEvent[]
 
   @@index([workspaceId])
   @@index([ownerId])
@@ -328,6 +339,12 @@ model Task {
   creator      User         @relation("TaskCreator", fields: [creatorId], references: [id])
   startDate    DateTime?
   dueDate      DateTime?
+  // Set the moment this task's column transitions into a `done`-category
+  // column (moveTask in tasks.service.ts), cleared if it's moved back out of
+  // done. Phase 6 analytics (completion-over-time, average completion time)
+  // depend entirely on this timestamp actually reflecting when work finished,
+  // not just `updatedAt` (which changes on every unrelated edit too).
+  completedAt  DateTime?
   version      Int          @default(1)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
@@ -514,4 +531,32 @@ model Attachment {
   @@index([workspaceId])
   @@index([taskId])
   @@map("attachments")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5 — Activity feed (separate from the Phase 1 security AuditLogEntry)
+// ---------------------------------------------------------------------------
+//
+// ActivityEvent is a user-facing, ordinary-project-activity feed (task
+// created/moved/assigned, comment posted, milestone completed) — NOT a
+// security/admin log. It denormalizes human-readable context (task title,
+// column names, actor display name) directly into `payload` so the feed can
+// render without re-joining to Task/BoardColumn/User at read time, since
+// those referenced rows may themselves change or be deleted later.
+
+model ActivityEvent {
+  id          String            @id @default(uuid())
+  workspaceId String
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId   String
+  project     Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  actorId     String
+  actor       User              @relation("ActivityEventActor", fields: [actorId], references: [id])
+  type        ActivityEventType
+  payload     Json              @default("{}")
+  createdAt   DateTime          @default(now())
+
+  @@index([workspaceId])
+  @@index([projectId, createdAt])
+  @@map("activity_events")
 }

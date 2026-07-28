@@ -6,6 +6,7 @@ import { isElevatedRole } from "../rbac/authorize.js";
 import type { RoleKey } from "@projecthub/shared";
 import { emitToProject } from "../realtime/realtime.js";
 import { createNotification } from "../notifications/notifications.service.js";
+import { createActivityEvent, broadcastActivityEvent } from "../activity/activity.service.js";
 
 const COMMENT_NOT_FOUND_MESSAGE = "This comment doesn't exist on this task.";
 
@@ -75,11 +76,12 @@ export interface CreateCommentParams {
   projectId: string;
   taskId: string;
   authorId: string;
+  authorDisplayName: string;
   input: CreateCommentInput;
 }
 
 export async function createComment(params: CreateCommentParams) {
-  const { workspaceId, projectId, taskId, authorId, input } = params;
+  const { workspaceId, projectId, taskId, authorId, authorDisplayName, input } = params;
   const task = await prisma.task.findFirst({ where: { id: taskId, workspaceId, projectId } });
   if (!task) {
     throw new NotFoundError("This task doesn't exist in this project.");
@@ -87,7 +89,7 @@ export async function createComment(params: CreateCommentParams) {
 
   const mentionedUserIds = await resolveMentionedUserIds(workspaceId, authorId, input.body);
 
-  const comment = await prisma.$transaction(async (tx) => {
+  const { comment, activityEvent } = await prisma.$transaction(async (tx) => {
     const created = await tx.comment.create({
       data: { workspaceId, taskId, authorId, body: input.body },
       include: { author: true, mentions: true },
@@ -101,7 +103,14 @@ export async function createComment(params: CreateCommentParams) {
         })),
       });
     }
-    return created;
+    const event = await createActivityEvent(tx, {
+      workspaceId,
+      projectId,
+      actorId: authorId,
+      type: "comment_added",
+      payload: { taskId, taskTitle: task.title, commentId: created.id, actorDisplayName: authorDisplayName },
+    });
+    return { comment: created, activityEvent: event };
   });
 
   const withMentions = await prisma.comment.findUniqueOrThrow({
@@ -111,6 +120,7 @@ export async function createComment(params: CreateCommentParams) {
   const serialized = serializeComment(withMentions);
 
   emitToProject(projectId, "comment.created", serialized);
+  broadcastActivityEvent(activityEvent);
 
   for (const mentionedUserId of mentionedUserIds) {
     await createNotification({

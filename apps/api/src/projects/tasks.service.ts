@@ -2,6 +2,9 @@ import type { CreateTaskInput, UpdateTaskInput } from "@projecthub/shared";
 import { prisma } from "../core/prisma.js";
 import { NotFoundError, ValidationError } from "../core/errors.js";
 import { computeAppendPosition, computeInsertPosition } from "./position.js";
+import { createActivityEvent, broadcastActivityEvent } from "../activity/activity.service.js";
+
+const DONE_CATEGORY = "done";
 
 const TASK_NOT_FOUND_MESSAGE = "This task doesn't exist in this project.";
 
@@ -81,11 +84,12 @@ export interface CreateTaskParams {
   workspaceId: string;
   projectId: string;
   creatorId: string;
+  creatorDisplayName: string;
   input: CreateTaskInput;
 }
 
 export async function createTask(params: CreateTaskParams) {
-  const { workspaceId, projectId, creatorId, input } = params;
+  const { workspaceId, projectId, creatorId, creatorDisplayName, input } = params;
 
   let columnId = input.columnId;
   if (columnId) {
@@ -127,26 +131,45 @@ export async function createTask(params: CreateTaskParams) {
     orderBy: { position: "desc" },
   });
 
-  return prisma.task.create({
-    data: {
+  // Task creation and the resulting activity-event row are created in the
+  // same transaction, so a feed entry can never exist without its
+  // underlying task (or vice versa). The event is only broadcast after the
+  // transaction has actually committed (see broadcastActivityEvent below).
+  const { task, activityEvent } = await prisma.$transaction(async (tx) => {
+    const created = await tx.task.create({
+      data: {
+        workspaceId,
+        projectId,
+        columnId,
+        parentTaskId,
+        milestoneId: input.milestoneId ?? null,
+        title: input.title,
+        description: input.description ?? null,
+        priority: input.priority ?? "medium",
+        position: computeAppendPosition(maxPositionTask?.position ?? null),
+        creatorId,
+        startDate: input.startDate ?? null,
+        dueDate: input.dueDate ?? null,
+      },
+      include: {
+        assignees: { include: { user: true } },
+        labels: { include: { label: true } },
+      },
+    });
+
+    const event = await createActivityEvent(tx, {
       workspaceId,
       projectId,
-      columnId,
-      parentTaskId,
-      milestoneId: input.milestoneId ?? null,
-      title: input.title,
-      description: input.description ?? null,
-      priority: input.priority ?? "medium",
-      position: computeAppendPosition(maxPositionTask?.position ?? null),
-      creatorId,
-      startDate: input.startDate ?? null,
-      dueDate: input.dueDate ?? null,
-    },
-    include: {
-      assignees: { include: { user: true } },
-      labels: { include: { label: true } },
-    },
+      actorId: creatorId,
+      type: "task_created",
+      payload: { taskId: created.id, taskTitle: created.title, actorDisplayName: creatorDisplayName },
+    });
+
+    return { task: created, activityEvent: event };
   });
+
+  broadcastActivityEvent(activityEvent);
+  return task;
 }
 
 export type UpdateTaskResult =
@@ -210,12 +233,26 @@ export interface MoveTaskInputResolved {
   afterTaskId?: string | null;
 }
 
+export interface TaskMoveActor {
+  id: string;
+  displayName: string;
+}
+
 export async function moveTask(
   workspaceId: string,
   projectId: string,
   taskId: string,
   input: MoveTaskInputResolved,
+  actor: TaskMoveActor,
 ): Promise<UpdateTaskResult> {
+  const currentTask = await prisma.task.findFirst({
+    where: { id: taskId, workspaceId, projectId },
+    include: { column: true },
+  });
+  if (!currentTask) {
+    throw new NotFoundError(TASK_NOT_FOUND_MESSAGE);
+  }
+
   const targetColumn = await prisma.boardColumn.findFirst({
     where: { id: input.columnId, projectId, workspaceId },
   });
@@ -274,9 +311,25 @@ export async function moveTask(
     ({ position } = computeInsertPosition(rebalancedPrev, rebalancedNext));
   }
 
+  // Phase 6: `completedAt` is set the moment a task's column transitions
+  // into a `done`-category column, and cleared if it's moved back out —
+  // this is the single source of truth the analytics/health-status engine
+  // relies on for completion timestamps.
+  let completedAtUpdate: Date | null | undefined;
+  if (targetColumn.category === DONE_CATEGORY && currentTask.column.category !== DONE_CATEGORY) {
+    completedAtUpdate = new Date();
+  } else if (targetColumn.category !== DONE_CATEGORY && currentTask.column.category === DONE_CATEGORY) {
+    completedAtUpdate = null;
+  }
+
   const result = await prisma.task.updateMany({
     where: { id: taskId, workspaceId, projectId, version: input.version },
-    data: { columnId: input.columnId, position, version: { increment: 1 } },
+    data: {
+      columnId: input.columnId,
+      position,
+      version: { increment: 1 },
+      ...(completedAtUpdate !== undefined ? { completedAt: completedAtUpdate } : {}),
+    },
   });
 
   if (result.count === 0) {
@@ -288,6 +341,25 @@ export async function moveTask(
       throw new NotFoundError(TASK_NOT_FOUND_MESSAGE);
     }
     return { conflict: true, currentTask: current };
+  }
+
+  if (currentTask.columnId !== input.columnId) {
+    const activityEvent = await createActivityEvent(prisma, {
+      workspaceId,
+      projectId,
+      actorId: actor.id,
+      type: "task_moved",
+      payload: {
+        taskId,
+        taskTitle: currentTask.title,
+        fromColumnId: currentTask.columnId,
+        fromColumnName: currentTask.column.name,
+        toColumnId: targetColumn.id,
+        toColumnName: targetColumn.name,
+        actorDisplayName: actor.displayName,
+      },
+    });
+    broadcastActivityEvent(activityEvent);
   }
 
   const updated = await getTaskOrThrow(workspaceId, projectId, taskId);
