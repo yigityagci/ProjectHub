@@ -59,7 +59,12 @@ export default function App() {
         path="/setup"
         element={
           needsSetup ? (
-            <SetupPage onComplete={(u) => setUser(u)} />
+            <SetupPage
+              onComplete={(u) => {
+                setNeedsSetup(false);
+                setUser(u);
+              }}
+            />
           ) : (
             <Navigate to="/" replace />
           )
