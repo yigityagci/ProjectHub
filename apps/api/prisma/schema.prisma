@@ -1,0 +1,183 @@
+// ProjectHub — Phase 1 Prisma schema.
+//
+// Only the Phase 1 entity subset is modeled here: User, Session, Workspace,
+// Role, RolePermission, WorkspaceMembership, Invitation, AuditLogEntry.
+// The full target schema (Team, Project, Task, Comment, Notification, ...)
+// is documented in docs/ARCHITECTURE.md and will be added in later phases.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  active
+  disabled
+}
+
+enum RoleKey {
+  OWNER
+  ADMIN
+  PROJECT_MANAGER
+  MEMBER
+  VIEWER
+  CLIENT
+}
+
+enum MembershipStatus {
+  active
+  suspended
+}
+
+enum InvitationStatus {
+  pending
+  accepted
+  revoked
+  expired
+}
+
+model User {
+  id              String     @id @default(uuid())
+  email           String     @unique
+  passwordHash    String
+  displayName     String
+  avatarUrl       String?
+  isPlatformAdmin Boolean    @default(false)
+  status          UserStatus @default(active)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  sessions             Session[]
+  ownedWorkspaces      Workspace[]         @relation("WorkspaceOwner")
+  memberships          WorkspaceMembership[]
+  sentInvitations      Invitation[]        @relation("InvitationInvitedBy")
+  acceptedInvitations  Invitation[]        @relation("InvitationAcceptedBy")
+  auditLogEntries      AuditLogEntry[]
+
+  @@map("users")
+}
+
+model Session {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash         String    @unique
+  createdAt         DateTime  @default(now())
+  expiresAt         DateTime
+  absoluteExpiresAt DateTime
+  lastSeenAt        DateTime  @default(now())
+  revokedAt         DateTime?
+  ip                String?
+  userAgent         String?
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model Workspace {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  ownerId   String
+  owner     User     @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  settings  Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  roles       Role[]
+  memberships WorkspaceMembership[]
+  invitations Invitation[]
+  auditLogEntries AuditLogEntry[]
+
+  @@index([ownerId])
+  @@map("workspaces")
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  key         RoleKey
+  name        String
+  isSystem    Boolean  @default(true)
+
+  permissions  RolePermission[]
+  memberships  WorkspaceMembership[]
+  invitations  Invitation[]
+
+  @@unique([workspaceId, key])
+  @@map("roles")
+}
+
+model RolePermission {
+  id         String @id @default(uuid())
+  roleId     String
+  role       Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission String
+
+  @@unique([roleId, permission])
+  @@map("role_permissions")
+}
+
+model WorkspaceMembership {
+  id          String           @id @default(uuid())
+  workspaceId String
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId      String
+  role        Role             @relation(fields: [roleId], references: [id])
+  status      MembershipStatus @default(active)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@index([workspaceId])
+  @@map("workspace_memberships")
+}
+
+model Invitation {
+  id             String            @id @default(uuid())
+  workspaceId    String
+  workspace      Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  email          String
+  roleId         String
+  role           Role              @relation(fields: [roleId], references: [id])
+  tokenHash      String            @unique
+  invitedById    String
+  invitedBy      User              @relation("InvitationInvitedBy", fields: [invitedById], references: [id])
+  status         InvitationStatus  @default(pending)
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  acceptedUserId String?
+  acceptedUser   User?             @relation("InvitationAcceptedBy", fields: [acceptedUserId], references: [id])
+  createdAt      DateTime          @default(now())
+
+  @@index([workspaceId, email])
+  @@map("invitations")
+}
+
+model AuditLogEntry {
+  id          String    @id @default(uuid())
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actorId     String?
+  actor       User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action      String
+  targetType  String?
+  targetId    String?
+  metadata    Json      @default("{}")
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([action])
+  @@map("audit_log_entries")
+}
