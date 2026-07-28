@@ -13,6 +13,8 @@ import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-
 import { CSS } from "@dnd-kit/utilities";
 import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
+import { getSocket, joinWorkspaceRoom, joinProjectRoom, leaveProjectRoom } from "../lib/socket.js";
+import NotificationBell from "../components/NotificationBell.js";
 import TaskDetailModal from "./TaskDetailModal.js";
 import type { CurrentUser } from "../App.js";
 import type { Task } from "./task-types.js";
@@ -135,6 +137,48 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, projectId]);
 
+  // Real-time collaboration: join this board's workspace/project rooms and
+  // live-apply task/board events pushed by other users' REST mutations.
+  // Socket.IO here is push-only — nothing in this effect ever writes state
+  // back to the server, it only reflects what the server already persisted.
+  useEffect(() => {
+    if (!workspaceId || !projectId) return;
+    const socket = getSocket();
+    joinWorkspaceRoom(workspaceId);
+    joinProjectRoom(projectId);
+
+    const onTaskCreated = (task: Task) => {
+      setTasks((prev) => (prev.some((t) => t.id === task.id) ? prev : [...prev, task]));
+    };
+    const onTaskChanged = (task: Task) => {
+      if (!task || !task.id) return;
+      setTasks((prev) => (prev.some((t) => t.id === task.id) ? prev.map((t) => (t.id === task.id ? task : t)) : prev));
+    };
+    const onTaskDeleted = ({ id }: { id: string }) => {
+      setTasks((prev) => prev.filter((t) => t.id !== id));
+      setSelectedTaskId((prev) => (prev === id ? null : prev));
+    };
+    const onBoardColumnChanged = () => {
+      load().catch(() => undefined);
+    };
+
+    socket.on("task.created", onTaskCreated);
+    socket.on("task.updated", onTaskChanged);
+    socket.on("task.moved", onTaskChanged);
+    socket.on("task.deleted", onTaskDeleted);
+    socket.on("board.column.changed", onBoardColumnChanged);
+
+    return () => {
+      socket.off("task.created", onTaskCreated);
+      socket.off("task.updated", onTaskChanged);
+      socket.off("task.moved", onTaskChanged);
+      socket.off("task.deleted", onTaskDeleted);
+      socket.off("board.column.changed", onBoardColumnChanged);
+      leaveProjectRoom(projectId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId, projectId]);
+
   const tasksByColumn = useMemo(() => {
     const map = new Map<string, Task[]>();
     for (const t of tasks) {
@@ -240,7 +284,10 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     <div className="ph-shell ph-shell-wide">
       <div className="ph-topbar ph-topbar-wide">
         <Brand />
-        <span style={{ fontSize: "0.9rem" }}>{user.displayName}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <NotificationBell />
+          <span style={{ fontSize: "0.9rem" }}>{user.displayName}</span>
+        </div>
       </div>
 
       <div className="ph-page-wide">
@@ -331,6 +378,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
           projectId={projectId}
           taskId={selectedTaskId}
           role={role}
+          currentUserId={user.id}
           allTasks={tasks}
           onClose={() => setSelectedTaskId(null)}
           onUpdated={handleTaskUpdated}

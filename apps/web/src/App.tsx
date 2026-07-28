@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { api } from "./lib/api.js";
+import { getSocket, disconnectSocket } from "./lib/socket.js";
 import SetupPage from "./pages/SetupPage.js";
 import LoginPage from "./pages/LoginPage.js";
 import WorkspacesPage from "./pages/WorkspacesPage.js";
@@ -46,6 +47,18 @@ export default function App() {
       }
     })();
   }, []);
+
+  // Connects the shared Socket.IO client once a user session exists (it
+  // authenticates via the same `ph_session` cookie as REST) and tears it
+  // down on logout. Individual pages join the workspace/project rooms they
+  // need on top of this base connection.
+  useEffect(() => {
+    if (user) {
+      getSocket();
+    } else {
+      disconnectSocket();
+    }
+  }, [user]);
 
   if (!checked) {
     return (

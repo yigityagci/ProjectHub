@@ -7,6 +7,7 @@ import { requireAuth, requireMembership, requirePermission, requireCsrf } from "
 import { assertCanAssignRole, assertNotLastOwner } from "../rbac/authorize.js";
 import { recordAuditEvent } from "../audit/audit.service.js";
 import { listWorkspaceMembers } from "./workspaces.service.js";
+import { revalidateRoomsForUser } from "../realtime/realtime.js";
 
 export async function registerMemberRoutes(app: FastifyInstance): Promise<void> {
   app.get(
@@ -77,6 +78,12 @@ export async function registerMemberRoutes(app: FastifyInstance): Promise<void> 
         userAgent: req.headers["user-agent"] ?? null,
       });
 
+      // A role change (e.g. a demotion) can immediately reduce which rooms
+      // this user is allowed to receive real-time events for; force an
+      // eviction re-check right away rather than waiting for their next
+      // REST request.
+      await revalidateRoomsForUser(targetUserId);
+
       return reply.send({
         member: { userId: targetUserId, role: updated.role.key },
       });
@@ -125,6 +132,11 @@ export async function registerMemberRoutes(app: FastifyInstance): Promise<void> 
         ip: req.ip,
         userAgent: req.headers["user-agent"] ?? null,
       });
+
+      // The removed member must stop receiving this workspace's (and its
+      // projects') real-time events immediately, not just on their next
+      // REST call.
+      await revalidateRoomsForUser(targetUserId);
 
       return reply.send({ ok: true });
     },

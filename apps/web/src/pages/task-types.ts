@@ -29,3 +29,27 @@ export interface Task {
   assignees: TaskAssignee[];
   labels: TaskLabelRef[];
 }
+
+export interface Comment {
+  id: string;
+  taskId: string;
+  authorId: string;
+  authorDisplayName: string;
+  authorEmail: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  mentionedUserIds: string[];
+}
+
+export interface Attachment {
+  id: string;
+  taskId: string;
+  uploaderId: string;
+  uploaderDisplayName: string;
+  uploaderEmail: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  createdAt: string;
+}

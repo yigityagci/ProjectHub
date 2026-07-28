@@ -61,11 +61,56 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return json as T;
 }
 
+/**
+ * Multipart file upload. Deliberately bypasses `request()` above (no
+ * `Content-Type: application/json` / JSON.stringify) since the browser must
+ * set its own multipart boundary header when given a FormData body.
+ */
+async function uploadFile<T>(path: string, file: File): Promise<T> {
+  const headers: Record<string, string> = {};
+  const csrf = readCookie("ph_csrf");
+  if (csrf) headers["X-CSRF-Token"] = csrf;
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers,
+    credentials: "include",
+    body: formData,
+  });
+
+  const text = await res.text();
+  const json = text ? JSON.parse(text) : {};
+
+  if (!res.ok) {
+    const err = json as ApiErrorBody;
+    throw new ApiError(res.status, err.error?.code ?? "UNKNOWN", err.error?.message ?? "Upload failed.", json);
+  }
+
+  return json as T;
+}
+
+/** Downloads a binary attachment as a Blob (used to trigger a browser save). */
+async function downloadFile(path: string): Promise<Blob> {
+  const res = await fetch(`${API_BASE}${path}`, { method: "GET", credentials: "include" });
+  if (!res.ok) {
+    const text = await res.text();
+    const json = text ? JSON.parse(text) : {};
+    const err = json as ApiErrorBody;
+    throw new ApiError(res.status, err.error?.code ?? "UNKNOWN", err.error?.message ?? "Download failed.", json);
+  }
+  return res.blob();
+}
+
 export const api = {
   get: <T>(path: string) => request<T>("GET", path),
   post: <T>(path: string, body?: unknown) => request<T>("POST", path, body ?? {}),
   patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body ?? {}),
   delete: <T>(path: string) => request<T>("DELETE", path),
+  upload: <T>(path: string, file: File) => uploadFile<T>(path, file),
+  download: (path: string) => downloadFile(path),
 };
 
 // Ensure a CSRF cookie exists before the first mutating request (e.g. on

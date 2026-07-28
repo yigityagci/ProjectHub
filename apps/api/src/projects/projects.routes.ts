@@ -23,6 +23,7 @@ import {
   addProjectMember,
   removeProjectMember,
 } from "./projects.service.js";
+import { emitToProject, revalidateRoomsForUser } from "../realtime/realtime.js";
 
 function serializeProject(project: {
   id: string;
@@ -176,6 +177,11 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
       }
 
       await addProjectMember(req.ctx.workspace!.id, req.ctx.project!.id, parsed.data.userId);
+      emitToProject(req.ctx.project!.id, "project.member.changed", {
+        projectId: req.ctx.project!.id,
+        userId: parsed.data.userId,
+        action: "added",
+      });
       return reply.code(201).send({ ok: true });
     },
   );
@@ -197,6 +203,16 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
         throw new NotFoundError("This member could not be found in this project.");
       }
       await removeProjectMember(req.ctx.project!.id, userId);
+      emitToProject(req.ctx.project!.id, "project.member.changed", {
+        projectId: req.ctx.project!.id,
+        userId,
+        action: "removed",
+      });
+      // A removed project member may have lost access to this (private)
+      // project's real-time room; force an immediate re-check so they stop
+      // receiving further events for it, mirroring the "permissions take
+      // effect immediately" guarantee.
+      await revalidateRoomsForUser(userId);
       return reply.send({ ok: true });
     },
   );

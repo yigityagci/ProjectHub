@@ -65,6 +65,12 @@ enum ColumnCategory {
   done
 }
 
+enum NotificationType {
+  mention
+  task_assigned
+  comment_reply
+}
+
 model User {
   id              String     @id @default(uuid())
   email           String     @unique
@@ -87,6 +93,11 @@ model User {
   projectMemberships   ProjectMembership[]
   createdTasks         Task[]              @relation("TaskCreator")
   taskAssignments      TaskAssignee[]
+
+  commentsAuthored     Comment[]           @relation("CommentAuthor")
+  mentionsReceived     Mention[]           @relation("MentionedUser")
+  notifications        Notification[]      @relation("NotificationRecipient")
+  attachmentsUploaded  Attachment[]        @relation("AttachmentUploader")
 
   @@map("users")
 }
@@ -133,6 +144,11 @@ model Workspace {
   taskLabels         TaskLabel[]
   milestones         Milestone[]
   taskDependencies   TaskDependency[]
+
+  comments      Comment[]
+  mentions      Mention[]
+  notifications Notification[]
+  attachments   Attachment[]
 
   @@index([ownerId])
   @@map("workspaces")
@@ -320,6 +336,8 @@ model Task {
   labels             TaskLabel[]
   blockedByEdges     TaskDependency[] @relation("TaskBlocked")
   blockingEdges      TaskDependency[] @relation("TaskBlocking")
+  comments           Comment[]
+  attachments        Attachment[]
 
   @@index([workspaceId])
   @@index([projectId, columnId, position])
@@ -414,4 +432,86 @@ model TaskDependency {
   @@index([projectId])
   @@index([blockingTaskId])
   @@map("task_dependencies")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 — Comments, mentions, notifications, attachments
+// ---------------------------------------------------------------------------
+//
+// Mention parsing convention (documented here, see also docs/PHASES.md):
+// the frontend's mention-autocomplete inserts opaque `@[userId]` tokens into
+// the comment body (never free-text name matching, which would be ambiguous
+// with duplicate display names). The server re-parses these tokens at
+// comment-creation time and only honors ones that resolve to an active
+// workspace member — the token is the source of truth, never trusted
+// display text.
+
+model Comment {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  taskId      String
+  task        Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  authorId    String
+  author      User      @relation("CommentAuthor", fields: [authorId], references: [id])
+  body        String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  mentions Mention[]
+
+  @@index([workspaceId])
+  @@index([taskId, createdAt])
+  @@map("comments")
+}
+
+model Mention {
+  id              String   @id @default(uuid())
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  commentId       String
+  comment         Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  mentionedUserId String
+  mentionedUser   User     @relation("MentionedUser", fields: [mentionedUserId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([commentId])
+  @@index([mentionedUserId])
+  @@map("mentions")
+}
+
+model Notification {
+  id              String           @id @default(uuid())
+  workspaceId     String
+  workspace       Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  recipientUserId String
+  recipient       User             @relation("NotificationRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+  type            NotificationType
+  payload         Json             @default("{}")
+  readAt          DateTime?
+  createdAt       DateTime         @default(now())
+
+  @@index([recipientUserId, createdAt])
+  @@index([workspaceId])
+  @@map("notifications")
+}
+
+model Attachment {
+  id          String   @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  taskId      String
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploaderId  String
+  uploader    User     @relation("AttachmentUploader", fields: [uploaderId], references: [id])
+  filename    String
+  contentType String
+  sizeBytes   Int
+  storageKey  String   @unique
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([taskId])
+  @@map("attachments")
 }

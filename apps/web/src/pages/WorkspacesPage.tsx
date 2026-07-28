@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
+import NotificationBell from "../components/NotificationBell.js";
 import type { CurrentUser } from "../App.js";
 
 interface WorkspaceSummary {
@@ -64,8 +65,9 @@ export default function WorkspacesPage({
     <div className="ph-shell">
       <div className="ph-topbar">
         <Brand />
-        <div>
-          <span style={{ marginRight: "1rem", fontSize: "0.9rem" }}>{user.displayName}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <NotificationBell />
+          <span style={{ fontSize: "0.9rem" }}>{user.displayName}</span>
           <button className="ph-button ph-button-secondary" style={{ width: "auto" }} onClick={handleLogout}>
             Log out
           </button>

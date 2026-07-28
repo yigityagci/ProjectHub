@@ -29,6 +29,11 @@ const envSchema = z
     ARGON2_MEMORY_COST_KIB: z.coerce.number().positive().default(19456),
     ARGON2_TIME_COST: z.coerce.number().positive().default(2),
     ARGON2_PARALLELISM: z.coerce.number().positive().default(1),
+    // Phase 4 — local-disk StorageProvider configuration. UPLOAD_DIR is
+    // relative to the API process's working directory (the `uploads` volume
+    // declared in docker-compose.yml maps to this in production).
+    UPLOAD_DIR: z.string().default("uploads"),
+    UPLOAD_MAX_SIZE_BYTES: z.coerce.number().positive().default(25 * 1024 * 1024),
   })
   .superRefine((value, ctx) => {
     if (value.NODE_ENV === "production") {

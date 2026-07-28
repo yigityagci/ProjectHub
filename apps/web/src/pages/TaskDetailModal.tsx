@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../lib/api.js";
-import type { Task } from "./task-types.js";
+import { getSocket } from "../lib/socket.js";
+import { renderCommentBody } from "../lib/mentions.js";
+import type { Task, Comment, Attachment } from "./task-types.js";
 
 interface WorkspaceMember {
   userId: string;
@@ -23,7 +25,19 @@ interface Dependency {
 const CAN_EDIT_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER", "MEMBER"]);
 const CAN_DELETE_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
 const CAN_MANAGE_DEPENDENCY_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
+// Comments/attachments reuse the `task.edit` permission server-side (see
+// apps/api/src/comments/comments.routes.ts); this mirrors that same
+// role set so Viewer/Client see a read-only comment/attachment UI.
+const CAN_COMMENT_ROLES = CAN_EDIT_ROLES;
+// Author-or-elevated-role deletion rule for comments/attachments.
+const ELEVATED_ROLES = new Set(["OWNER", "ADMIN"]);
 const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 function formatDateInput(value: string | null): string {
   if (!value) return "";
@@ -43,6 +57,7 @@ export default function TaskDetailModal({
   projectId,
   taskId,
   role,
+  currentUserId,
   allTasks,
   onClose,
   onUpdated,
@@ -52,6 +67,7 @@ export default function TaskDetailModal({
   projectId: string;
   taskId: string;
   role: string | null;
+  currentUserId: string;
   allTasks: Task[];
   onClose: () => void;
   onUpdated: (task: Task) => void;
@@ -61,6 +77,8 @@ export default function TaskDetailModal({
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [labels, setLabels] = useState<Label[]>([]);
   const [dependencies, setDependencies] = useState<Dependency[]>([]);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [conflictTask, setConflictTask] = useState<Task | null>(null);
   const [saving, setSaving] = useState(false);
@@ -71,9 +89,18 @@ export default function TaskDetailModal({
   const [startDate, setStartDate] = useState("");
   const [dueDate, setDueDate] = useState("");
 
+  const [commentDraft, setCommentDraft] = useState("");
+  const [mentionMatch, setMentionMatch] = useState<{ start: number; query: string } | null>(null);
+  const [postingComment, setPostingComment] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const commentInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   const canEdit = role !== null && CAN_EDIT_ROLES.has(role) && !conflictTask;
   const canDelete = role !== null && CAN_DELETE_ROLES.has(role);
   const canManageDependencies = role !== null && CAN_MANAGE_DEPENDENCY_ROLES.has(role);
+  const canComment = role !== null && CAN_COMMENT_ROLES.has(role);
+  const isElevated = role !== null && ELEVATED_ROLES.has(role);
 
   const base = `/api/workspaces/${workspaceId}/projects/${projectId}`;
 
@@ -88,20 +115,66 @@ export default function TaskDetailModal({
 
   async function load() {
     try {
-      const [taskRes, membersRes, labelsRes, depsRes] = await Promise.all([
+      const [taskRes, membersRes, labelsRes, depsRes, commentsRes, attachmentsRes] = await Promise.all([
         api.get<{ task: Task }>(`${base}/tasks/${taskId}`),
         api.get<{ members: WorkspaceMember[] }>(`/api/workspaces/${workspaceId}/members`),
         api.get<{ labels: Label[] }>(`${base}/labels`),
         api.get<{ dependencies: Dependency[] }>(`${base}/tasks/${taskId}/dependencies`),
+        api.get<{ comments: Comment[] }>(`${base}/tasks/${taskId}/comments`),
+        api.get<{ attachments: Attachment[] }>(`${base}/tasks/${taskId}/attachments`),
       ]);
       applyTask(taskRes.task);
       setMembers(membersRes.members);
       setLabels(labelsRes.labels);
       setDependencies(depsRes.dependencies);
+      setComments(commentsRes.comments);
+      setAttachments(attachmentsRes.attachments);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load this task.");
     }
   }
+
+  // Real-time: live-apply comment/attachment/task events for this specific
+  // task while the modal is open, so a collaborator's changes show up
+  // without needing to close and reopen it. This only ever reflects events
+  // the server already broadcast after persisting a REST mutation.
+  useEffect(() => {
+    const socket = getSocket();
+
+    const onTaskUpdated = (updated: Task) => {
+      if (updated?.id === taskId) applyTask(updated);
+    };
+    const onCommentCreated = (comment: Comment) => {
+      if (comment.taskId !== taskId) return;
+      setComments((prev) => (prev.some((c) => c.id === comment.id) ? prev : [...prev, comment]));
+    };
+    const onCommentDeleted = ({ id, taskId: t }: { id: string; taskId: string }) => {
+      if (t !== taskId) return;
+      setComments((prev) => prev.filter((c) => c.id !== id));
+    };
+    const onAttachmentCreated = (attachment: Attachment) => {
+      if (attachment.taskId !== taskId) return;
+      setAttachments((prev) => (prev.some((a) => a.id === attachment.id) ? prev : [attachment, ...prev]));
+    };
+    const onAttachmentDeleted = ({ id, taskId: t }: { id: string; taskId: string }) => {
+      if (t !== taskId) return;
+      setAttachments((prev) => prev.filter((a) => a.id !== id));
+    };
+
+    socket.on("task.updated", onTaskUpdated);
+    socket.on("comment.created", onCommentCreated);
+    socket.on("comment.deleted", onCommentDeleted);
+    socket.on("attachment.created", onAttachmentCreated);
+    socket.on("attachment.deleted", onAttachmentDeleted);
+    return () => {
+      socket.off("task.updated", onTaskUpdated);
+      socket.off("comment.created", onCommentCreated);
+      socket.off("comment.deleted", onCommentDeleted);
+      socket.off("attachment.created", onAttachmentCreated);
+      socket.off("attachment.deleted", onAttachmentDeleted);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskId]);
 
   useEffect(() => {
     load().catch(() => undefined);
@@ -217,6 +290,110 @@ export default function TaskDetailModal({
       setDependencies((prev) => prev.filter((d) => d.id !== depId));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not remove this dependency.");
+    }
+  }
+
+  // Mention autocomplete: watches for an "@partial-name" run of characters
+  // immediately before the cursor (no whitespace in between) and, if found,
+  // shows a dropdown of matching workspace members. Selecting one replaces
+  // that run with an opaque `@[userId]` token — see
+  // apps/web/src/lib/mentions.ts and packages/shared/src/dto/comment.ts for
+  // the full convention.
+  function handleCommentDraftChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const value = e.target.value;
+    const cursor = e.target.selectionStart ?? value.length;
+    setCommentDraft(value);
+
+    const uptoCursor = value.slice(0, cursor);
+    const match = uptoCursor.match(/(?:^|\s)@([a-zA-Z0-9._' -]{0,30})$/);
+    if (match) {
+      const query = match[1] ?? "";
+      const start = cursor - query.length - 1;
+      setMentionMatch({ start, query });
+    } else {
+      setMentionMatch(null);
+    }
+  }
+
+  const mentionCandidates = mentionMatch
+    ? members
+        .filter((m) => m.displayName.toLowerCase().includes(mentionMatch.query.toLowerCase()))
+        .slice(0, 5)
+    : [];
+
+  function handleSelectMention(member: WorkspaceMember) {
+    if (!mentionMatch) return;
+    const before = commentDraft.slice(0, mentionMatch.start);
+    const after = commentDraft.slice(mentionMatch.start + 1 + mentionMatch.query.length);
+    const token = `@[${member.userId}]`;
+    const next = `${before}${token} ${after}`;
+    setCommentDraft(next);
+    setMentionMatch(null);
+    commentInputRef.current?.focus();
+  }
+
+  async function handlePostComment() {
+    const body = commentDraft.trim();
+    if (!body) return;
+    setPostingComment(true);
+    setError(null);
+    try {
+      const res = await api.post<{ comment: Comment }>(`${base}/tasks/${taskId}/comments`, { body });
+      setComments((prev) => (prev.some((c) => c.id === res.comment.id) ? prev : [...prev, res.comment]));
+      setCommentDraft("");
+      setMentionMatch(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not post this comment.");
+    } finally {
+      setPostingComment(false);
+    }
+  }
+
+  async function handleDeleteComment(commentId: string) {
+    try {
+      await api.delete(`${base}/tasks/${taskId}/comments/${commentId}`);
+      setComments((prev) => prev.filter((c) => c.id !== commentId));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not delete this comment.");
+    }
+  }
+
+  async function handleUploadAttachment(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const res = await api.upload<{ attachment: Attachment }>(`${base}/tasks/${taskId}/attachments`, file);
+      setAttachments((prev) => (prev.some((a) => a.id === res.attachment.id) ? prev : [res.attachment, ...prev]));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not upload this file.");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function handleDownloadAttachment(attachment: Attachment) {
+    try {
+      const blob = await api.download(`${base}/tasks/${taskId}/attachments/${attachment.id}/download`);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = attachment.filename;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not download this file.");
+    }
+  }
+
+  async function handleDeleteAttachment(attachmentId: string) {
+    try {
+      await api.delete(`${base}/tasks/${taskId}/attachments/${attachmentId}`);
+      setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not delete this attachment.");
     }
   }
 
@@ -458,6 +635,124 @@ export default function TaskDetailModal({
               )}
             </div>
           </div>
+        </div>
+
+        <div className="ph-modal-section">
+          <h3>Attachments</h3>
+          <ul className="ph-dependency-list">
+            {attachments.length === 0 && <li style={{ border: "none" }}>No attachments yet.</li>}
+            {attachments.map((a) => (
+              <li key={a.id}>
+                <span>
+                  <button
+                    onClick={() => handleDownloadAttachment(a)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      color: "var(--ph-primary, #2563eb)",
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    {a.filename}
+                  </button>{" "}
+                  <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                    ({formatBytes(a.sizeBytes)} — uploaded by {a.uploaderDisplayName})
+                  </span>
+                </span>
+                {(a.uploaderId === currentUserId || isElevated) && (
+                  <button className="ph-remove-btn" onClick={() => handleDeleteAttachment(a.id)}>
+                    Delete
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+          {canComment && (
+            <div style={{ marginTop: "0.5rem" }}>
+              <input ref={fileInputRef} type="file" onChange={handleUploadAttachment} disabled={uploading} />
+              {uploading && <span style={{ fontSize: "0.8rem", marginLeft: "0.5rem" }}>Uploading...</span>}
+            </div>
+          )}
+        </div>
+
+        <div className="ph-modal-section">
+          <h3>Comments</h3>
+          <ul className="ph-comment-list" style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            {comments.length === 0 && <li style={{ fontSize: "0.85rem" }}>No comments yet.</li>}
+            {comments.map((c) => (
+              <li
+                key={c.id}
+                style={{
+                  borderBottom: "1px solid var(--ph-border)",
+                  padding: "0.5rem 0",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                  <strong style={{ fontSize: "0.85rem" }}>{c.authorDisplayName}</strong>
+                  <span style={{ fontSize: "0.72rem", color: "#64748b" }}>{formatDateTime(c.createdAt)}</span>
+                </div>
+                <p style={{ margin: "0.25rem 0", whiteSpace: "pre-wrap" }}>{renderCommentBody(c.body, members)}</p>
+                {(c.authorId === currentUserId || isElevated) && (
+                  <button className="ph-remove-btn" onClick={() => handleDeleteComment(c.id)}>
+                    Delete
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+
+          {canComment && (
+            <div style={{ marginTop: "0.5rem", position: "relative" }}>
+              <textarea
+                ref={commentInputRef}
+                rows={3}
+                placeholder="Write a comment... use @ to mention someone"
+                value={commentDraft}
+                onChange={handleCommentDraftChange}
+              />
+              {mentionMatch && mentionCandidates.length > 0 && (
+                <ul
+                  className="ph-card"
+                  style={{
+                    position: "absolute",
+                    zIndex: 10,
+                    listStyle: "none",
+                    margin: 0,
+                    padding: "0.25rem",
+                    width: "220px",
+                  }}
+                >
+                  {mentionCandidates.map((m) => (
+                    <li key={m.userId}>
+                      <button
+                        onClick={() => handleSelectMention(m)}
+                        style={{
+                          width: "100%",
+                          textAlign: "left",
+                          background: "none",
+                          border: "none",
+                          padding: "0.3rem",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {m.displayName}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <button
+                className="ph-button ph-button-secondary"
+                style={{ width: "auto", marginTop: "0.4rem" }}
+                onClick={handlePostComment}
+                disabled={postingComment || !commentDraft.trim()}
+              >
+                {postingComment ? "Posting..." : "Post comment"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

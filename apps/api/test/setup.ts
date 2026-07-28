@@ -27,3 +27,8 @@ process.env.RATE_LIMIT_LOGIN_MAX ??= "100000";
 process.env.RATE_LIMIT_LOGIN_WINDOW_MINUTES ??= "15";
 process.env.RATE_LIMIT_GLOBAL_MAX ??= "1000000";
 process.env.RATE_LIMIT_GLOBAL_WINDOW_MINUTES ??= "1";
+// Phase 4 uploads: a small limit keeps the oversized-upload test cheap (no
+// need to allocate a real 25MB buffer), and a dedicated directory keeps
+// test-run files out of the real dev `uploads/` folder.
+process.env.UPLOAD_DIR ??= "uploads-test";
+process.env.UPLOAD_MAX_SIZE_BYTES ??= String(1024 * 1024);

@@ -5,6 +5,7 @@ import helmet from "@fastify/helmet";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import sensible from "@fastify/sensible";
+import multipart from "@fastify/multipart";
 import { ZodError } from "zod";
 import { env } from "./config/env.js";
 import { pinoOptions } from "./core/logger.js";
@@ -22,6 +23,10 @@ import { registerColumnRoutes } from "./projects/columns.routes.js";
 import { registerTaskRoutes } from "./projects/tasks.routes.js";
 import { registerLabelRoutes } from "./projects/labels.routes.js";
 import { registerMilestoneRoutes } from "./projects/milestones.routes.js";
+import { registerCommentRoutes } from "./comments/comments.routes.js";
+import { registerAttachmentRoutes } from "./attachments/attachments.routes.js";
+import { registerNotificationRoutes } from "./notifications/notifications.routes.js";
+import { initRealtime } from "./realtime/realtime.js";
 
 export async function buildServer(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -44,6 +49,12 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(cors, {
     origin: env.CORS_ORIGIN.split(",").map((o) => o.trim()),
     credentials: true,
+  });
+  await app.register(multipart, {
+    limits: {
+      fileSize: env.UPLOAD_MAX_SIZE_BYTES,
+      files: 1,
+    },
   });
   await app.register(rateLimit, {
     global: true,
@@ -112,6 +123,11 @@ export async function buildServer(): Promise<FastifyInstance> {
   await registerTaskRoutes(app);
   await registerLabelRoutes(app);
   await registerMilestoneRoutes(app);
+  await registerCommentRoutes(app);
+  await registerAttachmentRoutes(app);
+  await registerNotificationRoutes(app);
+
+  initRealtime(app);
 
   return app;
 }

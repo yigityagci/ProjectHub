@@ -9,6 +9,7 @@ import {
   requirePermission,
 } from "../rbac/guards.js";
 import { listColumns, createColumn, updateColumn, reorderColumns, deleteColumn } from "./columns.service.js";
+import { emitToProject } from "../realtime/realtime.js";
 
 export async function registerColumnRoutes(app: FastifyInstance): Promise<void> {
   app.get(
@@ -37,6 +38,7 @@ export async function registerColumnRoutes(app: FastifyInstance): Promise<void> 
         throw new ValidationError(parsed.error.issues[0]?.message ?? "Invalid input.");
       }
       const column = await createColumn(req.ctx.workspace!.id, req.ctx.project!.id, parsed.data);
+      emitToProject(req.ctx.project!.id, "board.column.changed", { column });
       return reply.code(201).send({ column });
     },
   );
@@ -59,6 +61,7 @@ export async function registerColumnRoutes(app: FastifyInstance): Promise<void> 
       }
       const { columnId } = req.params as { columnId: string };
       const column = await updateColumn(req.ctx.workspace!.id, req.ctx.project!.id, columnId, parsed.data);
+      emitToProject(req.ctx.project!.id, "board.column.changed", { column });
       return reply.send({ column });
     },
   );
@@ -80,6 +83,7 @@ export async function registerColumnRoutes(app: FastifyInstance): Promise<void> 
         throw new ValidationError(parsed.error.issues[0]?.message ?? "Invalid input.");
       }
       const columns = await reorderColumns(req.ctx.workspace!.id, req.ctx.project!.id, parsed.data.columnIds);
+      emitToProject(req.ctx.project!.id, "board.column.changed", { columns });
       return reply.send({ columns });
     },
   );
@@ -98,6 +102,7 @@ export async function registerColumnRoutes(app: FastifyInstance): Promise<void> 
     async (req, reply) => {
       const { columnId } = req.params as { columnId: string };
       await deleteColumn(req.ctx.workspace!.id, req.ctx.project!.id, columnId);
+      emitToProject(req.ctx.project!.id, "board.column.changed", { deletedColumnId: columnId });
       return reply.send({ ok: true });
     },
   );

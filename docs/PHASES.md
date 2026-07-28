@@ -1,8 +1,8 @@
 # ProjectHub Phase Roadmap
 
 ProjectHub's full v1 scope is delivered incrementally across eight
-phases. This document describes each phase's intent. Phases 1 and 2 are
-implemented in this repository today; Phases 3-8 are planned and
+phases. This document describes each phase's intent. Phases 1-4 are
+implemented in this repository today; Phases 5-8 are planned and
 described at a level sufficient to guide future work, without
 prescribing implementation details that belong to their own planning
 pass.
@@ -102,33 +102,130 @@ working drag-and-drop board in the frontend.
   attempts return `404` the same way cross-workspace access does for
   Phase 1 resources.
 
-## Phase 3 — Real-time layer
+## Phase 3 — Real-time layer (implemented)
 
-Adds Socket.IO (with the Redis adapter for multi-process fan-out) as a
-push-only real-time layer alongside the existing REST API — all writes
-still go through REST so every mutation passes the single
-authz+validation+persistence path established in Phase 1. The
-WebSocket handshake is authenticated using the same session cookie as
-the REST API; clients join rooms scoped to workspace/project, and room
-membership is (re-)authorized against live `WorkspaceMembership` data,
-not cached at connection time. A membership or role change forces an
-immediate room membership update so a demoted/removed user stops
-receiving events for a workspace they can no longer access, mirroring
-the "permissions take effect immediately" guarantee from Phase 1.
+**Goal:** a push-only Socket.IO layer alongside the existing REST API,
+so that every mutation still passes through the single
+authz+validation+persistence path established in Phase 1 — Socket.IO
+never accepts writes, it only broadcasts after a REST mutation has
+already been persisted.
 
-## Phase 4 — Comments, mentions, notifications, attachments
+**Delivered:**
 
-Adds `Comment` and `Mention` (with @mention parsing and notification
-fan-out), a `Notification` model and delivery (in-app, building on the
-Phase 3 real-time layer), and `Attachment` file uploads via a
-`StorageProvider` abstraction. The abstraction ships with a local-disk
-implementation for self-hosted simplicity (using the `uploads` volume
-already declared in Phase 1's `docker-compose.yml`) and is designed to
-be S3-compatible-ready for a later swap without changing call sites.
-Upload handling enforces content-type/size checks and server-generated
-storage keys, and files are served only through an authorized endpoint
-that re-checks workspace membership — attachments never become directly
-and publicly linkable.
+- Socket.IO server (with `@socket.io/redis-adapter` on the existing
+  Redis instance, for multi-process fan-out) attached directly to the
+  Fastify server's underlying HTTP server.
+- WebSocket handshake authentication reuses the exact same
+  session-cookie lookup as the REST API (`auth/session.ts#resolveSession`)
+  — no parallel auth mechanism. The raw `cookie` header is parsed by
+  hand in `realtime/realtime.ts` since the Socket.IO handshake doesn't
+  go through Fastify's own cookie-parsing plugin.
+- Clients request to join `workspace:{id}` and `project:{id}` rooms
+  (plus an automatic `user:{id}` room on connect, used for Phase 4
+  notifications); every join is authorized against **live**
+  `WorkspaceMembership`/`ProjectMembership` data at request time
+  (`realtime/access.ts`), mirroring `requireMembership`/
+  `requireProjectAccess`'s rules exactly (including the CLIENT-role and
+  private-project rules).
+- Immediate eviction on permission loss: workspace member removal, role
+  changes, and project member removal all call
+  `revalidateRoomsForUser`, which re-checks every room each of that
+  user's currently-connected sockets is in and force-leaves any it can
+  no longer access — the same "permissions take effect instantly"
+  guarantee Phase 1 established for sessions, now extended to real-time
+  rooms. Covered by a dedicated, non-negotiable test
+  (`test/realtime-eviction.test.ts`) using a real Socket.IO client
+  against a real TCP listener (the only test file in this suite that
+  doesn't rely on Fastify's `inject()`).
+- Broadcasts hooked into the Phase 2 mutation paths after successful
+  persistence: task created/updated/moved/deleted, project membership
+  changed, board column created/updated/reordered/deleted — plus the
+  new Phase 4 events (comment created/deleted, attachment
+  created/deleted, notification created).
+- Frontend Socket.IO client (`apps/web/src/lib/socket.ts`) connects once
+  a session exists, joins the current workspace/project rooms, and
+  live-updates the Kanban board and task detail modal as other users'
+  mutations arrive.
+
+**Scaffolded, not exhaustive:** no reconnection-specific room re-join
+retry/backoff policy beyond the client library's defaults; no explicit
+rate-limiting of socket event volume (mirrors the REST API's global
+rate limit only).
+
+## Phase 4 — Comments, mentions, notifications, attachments (implemented)
+
+**Goal:** task-level collaboration primitives (comments, @mentions,
+notifications, file attachments) on top of the Phase 1-3 foundation,
+with the same workspace-isolation and permission-enforcement guarantees
+as every other resource.
+
+**Delivered:**
+
+- `Comment`, `Mention`, `Notification`, and `Attachment` models — all
+  workspace-scoped with a denormalized `workspaceId`, cascading from
+  `Workspace`/`Task`/`Comment`, matching Phase 1/2's schema
+  conventions. Real Prisma migration
+  (`prisma/migrations/20260728151956_phase4_comments_mentions_notifications_attachments`).
+- **Mention parsing convention (judgment call):** the frontend's
+  mention-autocomplete inserts opaque `@[userId]` tokens into the raw
+  comment body (never free-text `@displayName`/`@email` matching, which
+  is ambiguous with duplicate names and requires guessing intent
+  server-side). The server re-parses these tokens at comment-creation
+  time and only honors ones that resolve to an active workspace member;
+  the frontend renders tokens back to friendly `@DisplayName` text for
+  display only (`lib/mentions.ts`).
+- A deliberately small `NotificationType` catalog (`mention`,
+  `task_assigned`, `comment_reply`) — `comment_reply` is modeled but not
+  yet triggered by any flow in this phase (no threaded replies yet).
+  Notifications are created after the triggering mutation is persisted
+  (comment created → notification per mentioned user; task assignee
+  added → notification for the assignee), pushed live to the
+  recipient's own `user:{id}` real-time room, and listable/markable via
+  `GET /api/notifications`, `POST /api/notifications/:id/read`, and
+  `POST /api/notifications/read-all` — all scoped strictly to the
+  caller's own notifications (404, not 403, for someone else's
+  notification id, consistent with this codebase's existing
+  IDOR-prevention convention).
+- Comment/attachment creation reuses the existing `task.edit`
+  permission rather than introducing a new `comment.create` permission
+  (a judgment call — the same roles that can edit a task's content can
+  comment on/attach files to it; VIEWER/CLIENT remain strictly
+  read-only, unchanged from Phase 2). Comment/attachment **deletion**
+  is an author-or-Admin/Owner rule enforced in the service layer, not a
+  permission gate.
+- A `StorageProvider` abstraction (`storage/storage-provider.ts`) with a
+  local-disk implementation (`storage/local-disk-provider.ts`) backed by
+  the `uploads` volume already declared in Phase 1's
+  `docker-compose.yml`. Storage keys are always server-generated opaque
+  UUIDs, never derived from the client-supplied filename, so path
+  traversal isn't possible even in principle; call sites never touch
+  the filesystem directly, so an S3-compatible implementation could be
+  swapped in later without changing any call site.
+- Upload handling enforces a content-type allowlist
+  (`packages/shared/src/dto/attachment.ts`) and a configurable size
+  limit (`UPLOAD_MAX_SIZE_BYTES`, default 25MB) via `@fastify/multipart`.
+  Attachments are served only through an authorized proxy download
+  endpoint that re-runs the full `requireAuth` +
+  `requireMembership` + `requireProjectAccess` chain on every request —
+  there is no static file serving of the uploads directory, so
+  attachments never become directly, publicly linkable.
+- Full REST CRUD under
+  `/api/workspaces/:workspaceId/projects/:projectId/tasks/:taskId/{comments,attachments}`,
+  following Phase 2's route/guard conventions exactly, with every
+  cross-workspace/cross-project access attempt returning `404`.
+- Frontend: a comments section (list + add form + mention autocomplete
+  + author/timestamp + delete gated to author/Admin/Owner) and an
+  attachments section (upload/list/download/delete) in
+  `TaskDetailModal.tsx`, and a minimal notification bell + dropdown
+  (unread count, mark-as-read/mark-all-read) in the app shell
+  (`components/NotificationBell.tsx`, used from `WorkspacesPage.tsx` and
+  `KanbanBoardPage.tsx`).
+
+**Scaffolded, not exhaustive:** local-disk storage only (no S3
+implementation yet, by design — Phase 4 explicitly defers it); no
+comment editing (create/delete only); no attachment thumbnails/previews;
+`comment_reply` notifications aren't generated yet (no reply-threading
+model in this phase).
 
 ## Phase 5 — Activity feed + audit log expansion
 

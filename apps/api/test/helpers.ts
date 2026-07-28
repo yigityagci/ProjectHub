@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
 import { buildServer } from "../src/server.js";
 import { prisma } from "../src/core/prisma.js";
@@ -18,6 +19,10 @@ export async function resetDatabase(): Promise<void> {
     TRUNCATE TABLE
       "audit_log_entries",
       "invitations",
+      "notifications",
+      "mentions",
+      "comments",
+      "attachments",
       "task_dependencies",
       "task_labels",
       "labels",
@@ -114,6 +119,51 @@ export class TestClient {
 
 export function freshClient(app: FastifyInstance): TestClient {
   return new TestClient(app);
+}
+
+/**
+ * Starts a real TCP listener for `app` (Fastify's `inject()` used elsewhere
+ * in this suite never opens a real socket, which is fine for REST but not
+ * for the Socket.IO real-time layer — a real `socket.io-client` needs an
+ * actual port to connect to). Returns the ephemeral port assigned.
+ */
+export async function listenEphemeral(app: FastifyInstance): Promise<number> {
+  await app.listen({ port: 0, host: "127.0.0.1" });
+  const address = app.server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Could not determine the ephemeral test server port.");
+  }
+  return address.port;
+}
+
+/** Formats a TestClient's cookie jar as a raw `Cookie` request header value. */
+export function cookieHeaderFor(client: TestClient): string {
+  return cookieHeader(client.cookies as CookieJar);
+}
+
+/**
+ * Builds a `multipart/form-data` request body (single `file` field) for use
+ * with `TestClient.request({ method: "POST", url, payload, headers })`,
+ * exercising the real @fastify/multipart parser end-to-end (rather than
+ * mocking it away). Hand-rolled rather than via the `form-data` npm package
+ * so the payload is a single, already-materialized Buffer (what
+ * `light-my-request`/`inject()` expects), with no stream-timing surprises.
+ */
+export function buildMultipartUpload(opts: {
+  filename: string;
+  contentType: string;
+  data: Buffer;
+}): { payload: Buffer; headers: Record<string, string> } {
+  const boundary = `----ProjectHubTestBoundary${crypto.randomBytes(8).toString("hex")}`;
+  const header = Buffer.from(
+    `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="file"; filename="${opts.filename}"\r\n` +
+      `Content-Type: ${opts.contentType}\r\n\r\n`,
+    "utf8",
+  );
+  const footer = Buffer.from(`\r\n--${boundary}--\r\n`, "utf8");
+  const payload = Buffer.concat([header, opts.data, footer]);
+  return { payload, headers: { "content-type": `multipart/form-data; boundary=${boundary}` } };
 }
 
 export const VALID_PASSWORD = "Str0ng!Passw0rd#";

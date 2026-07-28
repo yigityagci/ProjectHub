@@ -3,6 +3,15 @@ import { ForbiddenError, ConflictError } from "../core/errors.js";
 import { prisma } from "../core/prisma.js";
 
 /**
+ * True for ADMIN/OWNER-ranked roles. Used by the Phase 4 "author or
+ * Admin/Owner" ownership-or-elevated-role rule on comment/attachment
+ * deletion.
+ */
+export function isElevatedRole(roleKey: RoleKey): boolean {
+  return ROLE_RANK[roleKey] >= ROLE_RANK.ADMIN;
+}
+
+/**
  * Enforces that a caller may not assign a role ranked higher than their own.
  */
 export function assertCanAssignRole(callerRoleKey: RoleKey, targetRoleKey: RoleKey): void {

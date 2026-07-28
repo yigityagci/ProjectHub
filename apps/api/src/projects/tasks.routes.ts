@@ -27,6 +27,8 @@ import {
   removeLabel,
 } from "./tasks.service.js";
 import { listDependencies, createDependency, removeDependency } from "./dependencies.service.js";
+import { emitToProject } from "../realtime/realtime.js";
+import { createNotification } from "../notifications/notifications.service.js";
 
 interface TaskWithRelations {
   id: string;
@@ -110,7 +112,9 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
         creatorId: req.ctx.user!.id,
         input: parsed.data,
       });
-      return reply.code(201).send({ task: serializeTask(task) });
+      const serialized = serializeTask(task);
+      emitToProject(req.ctx.project!.id, "task.created", serialized);
+      return reply.code(201).send({ task: serialized });
     },
   );
 
@@ -156,7 +160,9 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
         });
       }
 
-      return reply.code(200).send({ task: serializeTask(result.task) });
+      const serialized = serializeTask(result.task);
+      emitToProject(req.ctx.project!.id, "task.updated", serialized);
+      return reply.code(200).send({ task: serialized });
     },
   );
 
@@ -192,7 +198,9 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
         });
       }
 
-      return reply.code(200).send({ task: serializeTask(result.task) });
+      const serialized = serializeTask(result.task);
+      emitToProject(req.ctx.project!.id, "task.moved", serialized);
+      return reply.code(200).send({ task: serialized });
     },
   );
 
@@ -210,6 +218,7 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const { taskId } = req.params as { taskId: string };
       await deleteTask(req.ctx.workspace!.id, req.ctx.project!.id, taskId);
+      emitToProject(req.ctx.project!.id, "task.deleted", { id: taskId });
       return reply.send({ ok: true });
     },
   );
@@ -232,6 +241,16 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
       }
       const { taskId } = req.params as { taskId: string };
       await addAssignee(req.ctx.workspace!.id, req.ctx.project!.id, taskId, parsed.data.userId);
+      const updatedTask = await getTaskOrThrow(req.ctx.workspace!.id, req.ctx.project!.id, taskId);
+      emitToProject(req.ctx.project!.id, "task.updated", serializeTask(updatedTask));
+      if (parsed.data.userId !== req.ctx.user!.id) {
+        await createNotification({
+          workspaceId: req.ctx.workspace!.id,
+          recipientUserId: parsed.data.userId,
+          type: "task_assigned",
+          payload: { taskId, projectId: req.ctx.project!.id, assignedBy: req.ctx.user!.id },
+        });
+      }
       return reply.code(201).send({ ok: true });
     },
   );
@@ -250,6 +269,8 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const { taskId, userId } = req.params as { taskId: string; userId: string };
       await removeAssignee(req.ctx.workspace!.id, req.ctx.project!.id, taskId, userId);
+      const updatedTask = await getTaskOrThrow(req.ctx.workspace!.id, req.ctx.project!.id, taskId);
+      emitToProject(req.ctx.project!.id, "task.updated", serializeTask(updatedTask));
       return reply.send({ ok: true });
     },
   );
@@ -268,6 +289,8 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const { taskId, labelId } = req.params as { taskId: string; labelId: string };
       await addLabel(req.ctx.workspace!.id, req.ctx.project!.id, taskId, labelId);
+      const updatedTask = await getTaskOrThrow(req.ctx.workspace!.id, req.ctx.project!.id, taskId);
+      emitToProject(req.ctx.project!.id, "task.updated", serializeTask(updatedTask));
       return reply.code(201).send({ ok: true });
     },
   );
@@ -286,6 +309,8 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const { taskId, labelId } = req.params as { taskId: string; labelId: string };
       await removeLabel(req.ctx.workspace!.id, req.ctx.project!.id, taskId, labelId);
+      const updatedTask = await getTaskOrThrow(req.ctx.workspace!.id, req.ctx.project!.id, taskId);
+      emitToProject(req.ctx.project!.id, "task.updated", serializeTask(updatedTask));
       return reply.send({ ok: true });
     },
   );

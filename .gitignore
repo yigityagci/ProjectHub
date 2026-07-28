@@ -8,6 +8,8 @@ coverage/
 .DS_Store
 Thumbs.db
 apps/api/prisma/dev.db
+apps/api/uploads/
+apps/api/uploads-test/
 apps/web/dist/
 apps/api/dist/
 packages/*/dist/
