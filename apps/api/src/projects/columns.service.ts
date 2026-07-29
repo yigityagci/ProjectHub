@@ -40,6 +40,7 @@ export async function createColumn(
       categoryId,
       name: input.name,
       category: input.category,
+      color: input.color ?? null,
       position: computeAppendPosition(maxPositionColumn?.position ?? null),
     },
   });
@@ -57,6 +58,10 @@ export async function updateColumn(
     data: {
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.category !== undefined ? { category: input.category } : {}),
+      // color is nullable-on-update: an explicit `null` clears a custom
+      // color back to the category default, `undefined` (key omitted)
+      // leaves whatever color was already set untouched.
+      ...(input.color !== undefined ? { color: input.color } : {}),
     },
   });
 }

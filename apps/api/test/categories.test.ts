@@ -86,6 +86,36 @@ describe("Categories: CRUD, invariants, and membership", () => {
     expect(columns.map((c) => c.name).sort()).toEqual(["Done", "In Progress", "To Do"].sort());
   });
 
+  it("a column's optional custom color round-trips through create/update/clear", async () => {
+    const createRes = await owner.post(
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${firstCategoryId}/columns`,
+      { name: "Custom Color Column", category: "todo", color: "#4F46E5" },
+    );
+    expect(createRes.statusCode).toBe(201);
+    const columnId = createRes.json().column.id;
+    expect(createRes.json().column.color).toBe("#4F46E5");
+
+    const updateRes = await owner.patch(
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${firstCategoryId}/columns/${columnId}`,
+      { color: "#16A34A" },
+    );
+    expect(updateRes.statusCode).toBe(200);
+    expect(updateRes.json().column.color).toBe("#16A34A");
+
+    const clearRes = await owner.patch(
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${firstCategoryId}/columns/${columnId}`,
+      { color: null },
+    );
+    expect(clearRes.statusCode).toBe(200);
+    expect(clearRes.json().column.color).toBeNull();
+
+    const invalidRes = await owner.post(
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${firstCategoryId}/columns`,
+      { name: "Bad Color Column", category: "todo", color: "not-a-hex-color" },
+    );
+    expect(invalidRes.statusCode).toBe(422);
+  });
+
   it("rejects a duplicate category name within the same project", async () => {
     const res = await owner.post(`/api/workspaces/${workspaceId}/projects/${projectId}/categories`, {
       name: "Engineering",

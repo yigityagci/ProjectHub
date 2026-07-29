@@ -386,6 +386,12 @@ model BoardColumn {
   taskCategory TaskCategory   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   name         String
   category     ColumnCategory
+  // Optional custom accent color (hex string, e.g. "#4F46E5"), independent
+  // of `category` above — lets two columns in the same category-based
+  // bucket (e.g. two "in_progress" columns) look different, or a user just
+  // pick a color they like. Null means "fall back to the category-based
+  // default color" (see apps/web/src/styles.css's ph-cat-* variables).
+  color        String?
   position     Float
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt

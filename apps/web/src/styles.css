@@ -199,7 +199,7 @@ h3 {
  * input`, `.ph-filter-bar select`, etc.) layer on top for sizing/background
  * differences and win automatically via higher specificity.
  * --------------------------------------------------------------------- */
-input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="color"]),
 textarea {
   width: auto;
   padding: 0.55rem 0.7rem;
@@ -229,6 +229,39 @@ input[type="checkbox"] {
   width: 15px;
   height: 15px;
   cursor: pointer;
+}
+
+/* Custom column-color picker (native <input type="color">). The browser
+ * draws its own swatch, but on a dark surface an unstyled color input can
+ * look like a stray, borderless widget — a small border + matching
+ * background + fixed size keeps it consistent with the other ph-* inputs in
+ * both themes. */
+.ph-color-input {
+  width: 2.1rem;
+  height: 2.1rem;
+  padding: 0.15rem;
+  border: 1px solid var(--ph-border);
+  border-radius: 8px;
+  background: var(--ph-surface);
+  cursor: pointer;
+}
+
+.ph-color-input:hover {
+  border-color: var(--ph-primary);
+}
+
+.ph-color-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.ph-color-input::-webkit-color-swatch {
+  border: none;
+  border-radius: 5px;
+}
+
+.ph-color-input::-moz-color-swatch {
+  border: none;
+  border-radius: 5px;
 }
 
 select {
@@ -473,7 +506,7 @@ select:disabled {
   align-items: center;
   flex-wrap: wrap;
   gap: 0.6rem;
-  margin-bottom: 1.75rem;
+  margin: 0 auto 1.75rem;
   padding-bottom: 1.1rem;
   border-bottom: 1px solid var(--ph-border);
 }
@@ -781,9 +814,8 @@ select:disabled {
 
 .ph-board-column.ph-board-column-add {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  padding-top: 0.75rem;
   background: transparent;
   border-style: dashed;
   border-top-style: dashed;

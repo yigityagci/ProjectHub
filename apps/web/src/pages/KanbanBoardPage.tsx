@@ -41,7 +41,15 @@ interface BoardColumn {
   name: string;
   category: string;
   position: number;
+  // Optional custom accent color (hex string), independent of `category` —
+  // null/undefined means "use the category-based default color".
+  color?: string | null;
 }
+
+// Fallback swatch value shown in the native color picker before a user has
+// chosen a custom color — purely a picker starting point, not persisted
+// unless the user actually confirms a color (which fires onChange).
+const DEFAULT_COLOR_PICKER_VALUE = "#4f46e5";
 
 interface WorkspaceMember {
   userId: string;
@@ -168,9 +176,11 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
   const [addingColumn, setAddingColumn] = useState(false);
   const [newColumnName, setNewColumnName] = useState("");
   const [newColumnCategory, setNewColumnCategory] = useState<"todo" | "in_progress" | "done">("todo");
+  const [newColumnColor, setNewColumnColor] = useState<string | null>(null);
   const [editingColumnId, setEditingColumnId] = useState<string | null>(null);
   const [editingColumnName, setEditingColumnName] = useState("");
   const [editingColumnCategory, setEditingColumnCategory] = useState<"todo" | "in_progress" | "done">("todo");
+  const [editingColumnColor, setEditingColumnColor] = useState<string | null>(null);
 
   // Phase 7 search/filter: filtered client-side against the board already
   // fetched in full for this category (simpler and equally correct for a
@@ -498,6 +508,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
       const res = await api.post<{ column: BoardColumn }>(`${base}/columns`, {
         name,
         category: newColumnCategory,
+        color: newColumnColor,
       });
       // Same idempotent-append guard as handleCreateTask: the "board.column.changed"
       // socket broadcast (handled by onBoardColumnChanged -> load(), a full
@@ -512,6 +523,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
       });
       setNewColumnName("");
       setNewColumnCategory("todo");
+      setNewColumnColor(null);
       setAddingColumn(false);
     } catch (err) {
       showToast(err instanceof ApiError ? err.message : "Could not create this column.", true);
@@ -522,6 +534,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     setEditingColumnId(column.id);
     setEditingColumnName(column.name);
     setEditingColumnCategory((column.category as "todo" | "in_progress" | "done") ?? "todo");
+    setEditingColumnColor(column.color ?? null);
   }
 
   function cancelRenameColumn() {
@@ -536,6 +549,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
       const res = await api.patch<{ column: BoardColumn }>(`${base}/columns/${columnId}`, {
         name,
         category: editingColumnCategory,
+        color: editingColumnColor,
       });
       setColumns((prev) =>
         (prev ?? []).map((c) => (c.id === res.column.id ? res.column : c)).sort((a, b) => a.position - b.position),
@@ -885,6 +899,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                       key={column.id}
                       columnId={column.id}
                       category={column.category}
+                      color={column.color}
                       draggable={canManageBoard}
                     >
                       {(dragHandleProps) => (
@@ -911,6 +926,30 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                                 </option>
                               ))}
                             </select>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                              <label htmlFor="edit-column-color" style={{ fontSize: "0.8rem", color: "var(--ph-muted)" }}>
+                                Color (optional)
+                              </label>
+                              <input
+                                id="edit-column-color"
+                                type="color"
+                                className="ph-color-input"
+                                value={editingColumnColor ?? DEFAULT_COLOR_PICKER_VALUE}
+                                onChange={(e) => setEditingColumnColor(e.target.value)}
+                                aria-label="Column color"
+                              />
+                              {editingColumnColor && (
+                                <button
+                                  type="button"
+                                  className="ph-icon-btn"
+                                  aria-label="Reset column color to category default"
+                                  title="Reset to default"
+                                  onClick={() => setEditingColumnColor(null)}
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </div>
                             <div style={{ display: "flex", gap: "0.4rem" }}>
                               <button
                                 type="button"
@@ -947,7 +986,12 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                               )}
                               <span
                                 className={`ph-column-dot ph-column-dot-${column.category}`}
-                                title={`Category: ${column.category.replace("_", " ")}`}
+                                style={column.color ? { background: column.color } : undefined}
+                                title={
+                                  column.color
+                                    ? `Custom color (category: ${column.category.replace("_", " ")})`
+                                    : `Category: ${column.category.replace("_", " ")}`
+                                }
                               />
                               <h2>{column.name}</h2>
                             </div>
@@ -1039,6 +1083,30 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                             </option>
                           ))}
                         </select>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                          <label htmlFor="new-column-color" style={{ fontSize: "0.8rem", color: "var(--ph-muted)" }}>
+                            Color (optional)
+                          </label>
+                          <input
+                            id="new-column-color"
+                            type="color"
+                            className="ph-color-input"
+                            value={newColumnColor ?? DEFAULT_COLOR_PICKER_VALUE}
+                            onChange={(e) => setNewColumnColor(e.target.value)}
+                            aria-label="New column color"
+                          />
+                          {newColumnColor && (
+                            <button
+                              type="button"
+                              className="ph-icon-btn"
+                              aria-label="Reset column color to category default"
+                              title="Reset to default"
+                              onClick={() => setNewColumnColor(null)}
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
                         <div style={{ display: "flex", gap: "0.4rem" }}>
                           <button
                             type="button"
@@ -1057,6 +1125,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                               setAddingColumn(false);
                               setNewColumnName("");
                               setNewColumnCategory("todo");
+                              setNewColumnColor(null);
                             }}
                           >
                             Cancel
@@ -1126,11 +1195,13 @@ interface DragHandleProps {
 function BoardColumnShell({
   columnId,
   category,
+  color,
   draggable,
   children,
 }: {
   columnId: string;
   category: string;
+  color?: string | null;
   draggable: boolean;
   children: (dragHandleProps: DragHandleProps) => React.ReactNode;
 }) {
@@ -1148,6 +1219,11 @@ function BoardColumnShell({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
+    // A custom `color` naturally wins over the CSS attribute-selector rule
+    // (.ph-board-column[data-category="..."]) since inline styles have
+    // higher specificity than any stylesheet rule; when unset this is
+    // `undefined`, which falls straight through to that CSS default.
+    borderTopColor: color ?? undefined,
   };
   return (
     <div
