@@ -1,4 +1,19 @@
 /*
+ * Tailwind is layered in purely as a utility toolkit for structural/
+ * responsive layout (flex/grid/gap/breakpoints/truncate/min-w-0/etc.) on
+ * top of the hand-written `ph-*` design system below. It intentionally
+ * comes FIRST in the cascade: Tailwind's own reset (`base`) and its
+ * `components`/`utilities` layers are established here, then every `ph-*`
+ * rule below it wins any conflict by simply coming later in source order
+ * (most of these selectors are equal-or-higher specificity than Tailwind's
+ * own base-layer element selectors) — so no existing visual behavior
+ * changes, Tailwind classes are just available to reach for going forward.
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
  * Theming (Phase 7): every color used anywhere in this stylesheet or in a
  * component's inline styles should route through one of these custom
  * properties, never a hardcoded hex value, so both the light default and
@@ -929,6 +944,12 @@ body {
   background: var(--ph-surface);
   color: inherit;
   flex: 0 1 auto;
+  /* A select's intrinsic size is driven by its longest option text (e.g. a
+     long assignee/label name); without a hard cap that can force the whole
+     filter bar wider than the viewport on mobile even though the bar itself
+     is flex-wrap. max-width always clamps a flex item's rendered size
+     regardless of flex-shrink, so this is a reliable last-resort guard. */
+  max-width: 100%;
 }
 
 .ph-filter-bar .ph-filter-clear {
@@ -969,11 +990,12 @@ body {
     font-size: 0.78rem;
   }
 
-  /* The notification dropdown is absolutely positioned with a fixed width;
-     clamp it to the viewport so it can never overflow horizontally on a
-     narrow phone screen. */
+  /* The notification dropdown's width/max-width are handled unconditionally
+     via Tailwind utilities on the component itself (see NotificationBell.tsx
+     — `w-80 max-w-[calc(100vw-2rem)]`), so it can never overflow
+     horizontally at any viewport size. This just nudges its horizontal
+     anchor point on narrow phones so it stays fully on-screen. */
   .ph-notification-dropdown {
-    width: min(320px, calc(100vw - 2rem)) !important;
     right: -0.5rem;
   }
 

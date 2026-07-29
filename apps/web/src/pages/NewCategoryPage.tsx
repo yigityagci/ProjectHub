@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
+import NotificationBell from "../components/NotificationBell.js";
 import ThemeToggle from "../components/ThemeToggle.js";
 import type { CurrentUser } from "../App.js";
 
@@ -68,11 +69,14 @@ export default function NewCategoryPage({ user }: { user: CurrentUser }) {
 
   return (
     <div className="ph-shell">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+      <div className="ph-topbar">
         <Brand />
-        <ThemeToggle />
+        <div className="ph-topbar-actions">
+          <ThemeToggle />
+          <NotificationBell />
+        </div>
       </div>
-      <div className="ph-card" style={{ marginTop: "1.5rem" }}>
+      <div className="ph-card">
         <h1 style={{ fontSize: "1.1rem" }}>Set up your first category</h1>
         <p className="ph-subtitle">
           {projectName ? `"${projectName}" needs at least one category before you can start working.` : "Loading..."}{" "}

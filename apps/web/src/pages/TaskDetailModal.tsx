@@ -719,15 +719,7 @@ export default function TaskDetailModal({
               />
               {mentionMatch && mentionCandidates.length > 0 && (
                 <ul
-                  className="ph-card"
-                  style={{
-                    position: "absolute",
-                    zIndex: 10,
-                    listStyle: "none",
-                    margin: 0,
-                    padding: "0.25rem",
-                    width: "220px",
-                  }}
+                  className="ph-card absolute z-10 list-none m-0 p-1 w-[220px] max-w-[calc(100vw-3rem)]"
                 >
                   {mentionCandidates.map((m) => (
                     <li key={m.userId}>

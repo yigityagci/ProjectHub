@@ -118,19 +118,9 @@ export default function NotificationBell() {
 
       {open && (
         <div
-          className="ph-card ph-notification-dropdown"
-          style={{
-            position: "absolute",
-            right: 0,
-            top: "2.4rem",
-            width: "320px",
-            maxHeight: "360px",
-            overflowY: "auto",
-            zIndex: 20,
-            padding: "0.75rem",
-          }}
+          className="ph-card ph-notification-dropdown absolute right-0 top-[2.4rem] z-20 w-80 max-w-[calc(100vw-2rem)] max-h-[360px] overflow-y-auto p-3"
         >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div className="flex items-center justify-between gap-2">
             <strong style={{ fontSize: "0.85rem" }}>Notifications</strong>
             {unreadCount > 0 && (
               <button

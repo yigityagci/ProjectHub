@@ -786,22 +786,25 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
           </div>
         )}
 
-        <div className="ph-subnav">
+        <div className="ph-subnav flex-wrap">
           <button
             type="button"
-            className={`ph-subnav-link${view === "board" ? " ph-subnav-active" : ""}`}
+            className={`ph-subnav-link whitespace-nowrap${view === "board" ? " ph-subnav-active" : ""}`}
             onClick={() => setView("board")}
           >
             Board
           </button>
           <button
             type="button"
-            className={`ph-subnav-link${view === "activity" ? " ph-subnav-active" : ""}`}
+            className={`ph-subnav-link whitespace-nowrap${view === "activity" ? " ph-subnav-active" : ""}`}
             onClick={() => setView("activity")}
           >
             Activity
           </button>
-          <Link className="ph-subnav-link" to={`/workspace/${workspaceId}/projects/${projectId}/analytics`}>
+          <Link
+            className="ph-subnav-link whitespace-nowrap"
+            to={`/workspace/${workspaceId}/projects/${projectId}/analytics`}
+          >
             Analytics
           </Link>
         </div>

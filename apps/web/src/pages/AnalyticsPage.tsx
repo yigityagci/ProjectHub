@@ -46,11 +46,13 @@ function BarRow({ label, value, max }: { label: string; value: number; max: numb
   const pct = max > 0 ? Math.round((value / max) * 100) : 0;
   return (
     <div className="ph-bar-row">
-      <span>{label}</span>
-      <div className="ph-bar-track">
+      <span className="min-w-0 truncate" title={label}>
+        {label}
+      </span>
+      <div className="ph-bar-track min-w-0">
         <div className="ph-bar-fill" style={{ width: `${pct}%` }} />
       </div>
-      <span>{value}</span>
+      <span className="text-right">{value}</span>
     </div>
   );
 }

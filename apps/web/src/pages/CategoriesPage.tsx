@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
+import NotificationBell from "../components/NotificationBell.js";
 import ThemeToggle from "../components/ThemeToggle.js";
 import type { CurrentUser } from "../App.js";
 
@@ -102,6 +103,7 @@ export default function CategoriesPage({ user }: { user: CurrentUser }) {
         <Brand />
         <div className="ph-topbar-actions">
           <ThemeToggle />
+          <NotificationBell />
           <span style={{ fontSize: "0.9rem" }}>{user.displayName}</span>
         </div>
       </div>
@@ -163,11 +165,13 @@ export default function CategoriesPage({ user }: { user: CurrentUser }) {
             {categories.map((c) => (
               <li key={c.id}>
                 <Link
-                  className="ph-category-card"
+                  className="ph-category-card gap-3"
                   to={`/workspace/${workspaceId}/projects/${projectId}/categories/${c.id}/board`}
                 >
-                  <span>{c.name}</span>
-                  <span className="ph-category-card-meta">
+                  <span className="min-w-0 truncate" title={c.name}>
+                    {c.name}
+                  </span>
+                  <span className="ph-category-card-meta shrink-0">
                     {c.visibility === "private" && <span className="ph-badge ph-badge-private">Private</span>}
                   </span>
                 </Link>

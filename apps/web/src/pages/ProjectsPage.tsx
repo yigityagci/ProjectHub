@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
+import NotificationBell from "../components/NotificationBell.js";
 import ThemeToggle from "../components/ThemeToggle.js";
 import type { CurrentUser } from "../App.js";
 
@@ -116,6 +117,7 @@ export default function ProjectsPage({ user }: { user: CurrentUser }) {
         <Brand />
         <div className="ph-topbar-actions">
           <ThemeToggle />
+          <NotificationBell />
           <span style={{ fontSize: "0.9rem" }}>{user.displayName}</span>
         </div>
       </div>
@@ -185,11 +187,13 @@ export default function ProjectsPage({ user }: { user: CurrentUser }) {
             {projects.map((p) => (
               <li key={p.id}>
                 <Link
-                  className="ph-project-card"
+                  className="ph-project-card gap-3"
                   to={`/workspace/${workspaceId}/projects/${p.id}/categories`}
                 >
-                  <span>{p.name}</span>
-                  <span className="ph-project-card-meta">
+                  <span className="min-w-0 truncate" title={p.name}>
+                    {p.name}
+                  </span>
+                  <span className="ph-project-card-meta shrink-0">
                     {p.visibility === "private" && <span className="ph-badge ph-badge-private">Private</span>}
                     <span className={`ph-badge ph-badge-status-${p.status}`}>{p.status.replace("_", " ")}</span>
                   </span>
