@@ -4,6 +4,7 @@ import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
 import NotificationBell from "../components/NotificationBell.js";
 import ThemeToggle from "../components/ThemeToggle.js";
+import { IconPlus } from "../components/Icons.js";
 import type { CurrentUser } from "../App.js";
 
 interface Category {
@@ -238,7 +239,8 @@ export default function CategoriesPage({ user }: { user: CurrentUser }) {
                 className="ph-button ph-button-secondary"
                 onClick={() => setAddingCategory(true)}
               >
-                + New category
+                <IconPlus size={15} />
+                New category
               </button>
             )}
           </div>

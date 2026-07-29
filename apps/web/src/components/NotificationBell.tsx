@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { getSocket } from "../lib/socket.js";
+import { IconBell } from "./Icons.js";
 
 export interface AppNotification {
   id: string;
@@ -94,24 +95,15 @@ export default function NotificationBell() {
   return (
     <div style={{ position: "relative" }}>
       <button
-        className="ph-button ph-button-secondary"
-        style={{ width: "auto", position: "relative" }}
+        className="ph-icon-only-btn"
         onClick={() => setOpen((o) => !o)}
-        aria-label="Notifications"
+        aria-label={unreadCount > 0 ? `Notifications (${unreadCount} unread)` : "Notifications"}
+        title="Notifications"
       >
-        Notifications
+        <IconBell size={18} />
         {unreadCount > 0 && (
-          <span
-            style={{
-              marginLeft: "0.4rem",
-              background: "var(--ph-error, #dc2626)",
-              color: "white",
-              borderRadius: "999px",
-              padding: "0 0.4rem",
-              fontSize: "0.7rem",
-            }}
-          >
-            {unreadCount}
+          <span className="ph-notification-dot" aria-hidden="true">
+            {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
       </button>
@@ -143,12 +135,14 @@ export default function NotificationBell() {
                     style={{
                       width: "100%",
                       textAlign: "left",
-                      background: n.readAt ? "transparent" : "rgba(59,130,246,0.08)",
+                      background: n.readAt ? "transparent" : "rgba(var(--ph-primary-rgb), 0.08)",
                       border: "none",
                       borderBottom: "1px solid var(--ph-border)",
-                      padding: "0.5rem 0.25rem",
+                      borderRadius: "6px",
+                      padding: "0.55rem 0.4rem",
                       cursor: "pointer",
                       fontSize: "0.8rem",
+                      transition: "background-color 150ms ease",
                     }}
                   >
                     <div>{describeNotification(n)}</div>

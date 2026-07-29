@@ -30,6 +30,7 @@ import {
 import NotificationBell from "../components/NotificationBell.js";
 import ThemeToggle from "../components/ThemeToggle.js";
 import ActivityFeed from "../components/ActivityFeed.js";
+import { IconGrip, IconPencil, IconPlus, IconTrash } from "../components/Icons.js";
 import TaskDetailModal from "./TaskDetailModal.js";
 import CreateTaskModal from "./CreateTaskModal.js";
 import type { CurrentUser } from "../App.js";
@@ -880,7 +881,12 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                   const columnTasks = tasksByColumn.get(column.id) ?? [];
                   const isEditing = editingColumnId === column.id;
                   return (
-                    <BoardColumnShell key={column.id} columnId={column.id} draggable={canManageBoard}>
+                    <BoardColumnShell
+                      key={column.id}
+                      columnId={column.id}
+                      category={column.category}
+                      draggable={canManageBoard}
+                    >
                       {(dragHandleProps) => (
                       <>
                       <div className="ph-board-column-header">
@@ -926,7 +932,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                           </div>
                         ) : (
                           <>
-                            <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", minWidth: 0 }}>
                               {canManageBoard && (
                                 <button
                                   type="button"
@@ -936,12 +942,16 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                                   {...dragHandleProps.attributes}
                                   {...dragHandleProps.listeners}
                                 >
-                                  ⠿
+                                  <IconGrip size={16} />
                                 </button>
                               )}
+                              <span
+                                className={`ph-column-dot ph-column-dot-${column.category}`}
+                                title={`Category: ${column.category.replace("_", " ")}`}
+                              />
                               <h2>{column.name}</h2>
                             </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.2rem" }}>
                               <span className="ph-board-column-count">{columnTasks.length}</span>
                               {canCreateTasks && (
                                 <button
@@ -951,7 +961,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                                   title="Add a task"
                                   onClick={() => setCreateTaskColumnId(column.id)}
                                 >
-                                  +
+                                  <IconPlus size={16} />
                                 </button>
                               )}
                               {canManageBoard && (
@@ -963,7 +973,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                                     title="Rename column"
                                     onClick={() => startRenameColumn(column)}
                                   >
-                                    ✎
+                                    <IconPencil size={16} />
                                   </button>
                                   <button
                                     type="button"
@@ -972,7 +982,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                                     title="Delete column"
                                     onClick={() => handleDeleteColumn(column.id)}
                                   >
-                                    🗑
+                                    <IconTrash size={16} />
                                   </button>
                                 </>
                               )}
@@ -1059,7 +1069,8 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                         className="ph-button ph-button-secondary"
                         onClick={() => setAddingColumn(true)}
                       >
-                        + Add column
+                        <IconPlus size={15} />
+                        Add column
                       </button>
                     )}
                   </div>
@@ -1114,10 +1125,12 @@ interface DragHandleProps {
 
 function BoardColumnShell({
   columnId,
+  category,
   draggable,
   children,
 }: {
   columnId: string;
+  category: string;
   draggable: boolean;
   children: (dragHandleProps: DragHandleProps) => React.ReactNode;
 }) {
@@ -1140,6 +1153,7 @@ function BoardColumnShell({
     <div
       ref={setNodeRef}
       style={style}
+      data-category={category}
       className={`ph-board-column${isDragging ? " ph-board-column-dragging" : ""}`}
     >
       {children({ attributes, listeners })}

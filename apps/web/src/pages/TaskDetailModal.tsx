@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../lib/api.js";
 import { getSocket } from "../lib/socket.js";
 import { renderCommentBody } from "../lib/mentions.js";
+import { IconX } from "../components/Icons.js";
 import type { Task, Comment, Attachment } from "./task-types.js";
 
 interface WorkspaceMember {
@@ -434,7 +435,7 @@ export default function TaskDetailModal({
             <h2 style={{ margin: 0 }}>{task.title}</h2>
           )}
           <button className="ph-modal-close" onClick={onClose} aria-label="Close">
-            ×
+            <IconX size={18} />
           </button>
         </div>
 
@@ -479,7 +480,7 @@ export default function TaskDetailModal({
                   ))}
                 </select>
               ) : (
-                <span className="ph-badge">{task.priority}</span>
+                <span className={`ph-badge ph-badge-priority-${task.priority}`}>{task.priority}</span>
               )}
             </div>
 

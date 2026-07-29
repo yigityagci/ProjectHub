@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { IconX } from "../components/Icons.js";
 import type { Task } from "./task-types.js";
 
 const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
@@ -69,7 +70,7 @@ export default function CreateTaskModal({
         <div className="ph-modal-header">
           <h2 style={{ margin: 0 }}>New task</h2>
           <button className="ph-modal-close" onClick={onClose} aria-label="Close">
-            ×
+            <IconX size={18} />
           </button>
         </div>
 
