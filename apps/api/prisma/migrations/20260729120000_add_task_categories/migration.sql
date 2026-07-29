@@ -1,23 +1,12 @@
--- Categories feature, step 1 of 2 (see docs/PHASES.md for the full
--- rationale): adds the new TaskCategory/CategoryMembership tables and the
--- new `categoryId` columns on board_columns/tasks/activity_events as
--- NULLABLE first. A one-time backfill script
--- (prisma/backfill-categories.ts) is run against every existing environment
--- between this migration and the next one, assigning a bootstrap category
--- to every pre-existing project and reassigning its existing columns/tasks
--- to it. Only once that backfill has completed does the follow-up migration
--- (20260729130000_task_categories_required) make `categoryId` NOT NULL on
--- board_columns/tasks and swap board_columns' unique constraint from
--- (projectId, name) to (categoryId, name).
---
--- This two-step split is required because this repository's project/board
--- column/task rows already exist in deployed databases (dev data, and
--- potentially real self-hosted installs) with no category assigned yet —
--- adding a NOT NULL FK column in one shot would either fail outright or
--- require an unsafe default. Brand new environments (e.g. a fresh test
--- database) have zero existing rows, so the backfill is a no-op for them,
--- but the same two-migration shape is used everywhere for consistency and
--- to keep this migration history simple to reason about.
+-- Categories feature: adds TaskCategory/CategoryMembership and the new
+-- required `categoryId` FK on board_columns/tasks (plus an optional
+-- `categoryId` on activity_events, since project-level events like
+-- `milestone_completed` never have a category in scope). This is
+-- deliberately a single migration, not a nullable-then-required two-step
+-- sequence: this is pre-production software with no real deployed data to
+-- preserve, so there is no backfill concern to design around. See
+-- docs/PHASES.md / docs/ARCHITECTURE.md for the product rationale behind
+-- the Categories tier itself.
 
 -- CreateEnum
 CREATE TYPE "CategoryVisibility" AS ENUM ('workspace', 'private');
@@ -61,23 +50,32 @@ CREATE INDEX "category_memberships_userId_idx" ON "category_memberships"("userId
 -- CreateIndex
 CREATE UNIQUE INDEX "category_memberships_categoryId_userId_key" ON "category_memberships"("categoryId", "userId");
 
--- AlterTable (nullable for now — see header comment)
+-- AlterTable: categoryId is required from the start on board_columns/tasks.
+ALTER TABLE "board_columns" ADD COLUMN "categoryId" TEXT NOT NULL;
+
+-- AlterTable
+ALTER TABLE "tasks" ADD COLUMN "categoryId" TEXT NOT NULL;
+
+-- AlterTable: activity_events.categoryId is nullable by design (not a
+-- migration-safety artifact) — project-level events with no category in
+-- scope (e.g. milestone_completed) leave it null; see schema.prisma.
 ALTER TABLE "activity_events" ADD COLUMN "categoryId" TEXT;
 
--- AlterTable (nullable for now — see header comment)
-ALTER TABLE "board_columns" ADD COLUMN "categoryId" TEXT;
-
--- AlterTable (nullable for now — see header comment)
-ALTER TABLE "tasks" ADD COLUMN "categoryId" TEXT;
+-- Column names are unique within a category's own board (not project-wide)
+-- from the start — replaces the Phase 2 project-wide uniqueness.
+DROP INDEX "board_columns_projectId_name_key";
 
 -- CreateIndex
-CREATE INDEX "activity_events_categoryId_idx" ON "activity_events"("categoryId");
+CREATE UNIQUE INDEX "board_columns_categoryId_name_key" ON "board_columns"("categoryId", "name");
 
 -- CreateIndex
 CREATE INDEX "board_columns_categoryId_position_idx" ON "board_columns"("categoryId", "position");
 
 -- CreateIndex
 CREATE INDEX "tasks_categoryId_columnId_position_idx" ON "tasks"("categoryId", "columnId", "position");
+
+-- CreateIndex
+CREATE INDEX "activity_events_categoryId_idx" ON "activity_events"("categoryId");
 
 -- AddForeignKey
 ALTER TABLE "task_categories" ADD CONSTRAINT "task_categories_workspaceId_fkey" FOREIGN KEY ("workspaceId") REFERENCES "workspaces"("id") ON DELETE CASCADE ON UPDATE CASCADE;

@@ -528,24 +528,19 @@ back to 0.
   `ActivityEvent` gained an optional `categoryId` (null for project-level
   events with no category in scope, e.g. `milestone_completed`, since
   milestones remain project-scoped and unaffected by this feature).
-- **Migration/backfill:** this repository already has real, previously
-  committed Prisma migration history (`apps/api/prisma/migrations/`,
-  going back to Phase 1) — there was no "migrations were never generated"
-  situation to work around. The schema change was applied as two ordinary
-  sequential migrations: `20260729120000_add_task_categories_nullable`
-  (new tables/enum + `categoryId` added as a nullable column on
-  `board_columns`/`tasks`/`activity_events`, FKs included) followed by a
-  one-time, idempotent, re-runnable backfill script
-  (`apps/api/prisma/backfill-categories.ts`, `pnpm prisma:backfill-categories`)
-  that creates exactly one bootstrap `TaskCategory` (named after the
-  project's own name) for any *pre-existing* project with zero categories
-  and reassigns its existing columns/tasks to it, and finally
-  `20260729130000_task_categories_required` (makes `categoryId` `NOT
-  NULL` and swaps `board_columns`' unique constraint to `(categoryId,
-  name)`). This bootstrap-category backfill is explicitly NOT the same
-  thing as the "no default category name for new projects" product rule
-  above, which is unaffected and remains true for every project created
-  after this migration.
+- **Migration:** this repository already has real, previously committed
+  Prisma migration history (`apps/api/prisma/migrations/`, going back to
+  Phase 1) — there was no "migrations were never generated" situation to
+  work around. This is pre-production software with no real deployed data
+  to preserve, so the schema change was applied as a single ordinary
+  migration, `20260729120000_add_task_categories`: new `TaskCategory`/
+  `CategoryMembership` tables + `CategoryVisibility` enum, and a required
+  (`NOT NULL` from the start) `categoryId` FK on `board_columns`/`tasks`
+  (plus an optional `categoryId` on `activity_events`, since project-level
+  events like `milestone_completed` never have a category in scope), with
+  `board_columns`' unique constraint on `(categoryId, name)` from the
+  start. No nullable-then-required two-step sequencing and no backfill
+  script were needed or used.
 - **Guard chain:** a new `requireCategoryAccess` guard
   (`apps/api/src/rbac/guards.ts`), inserted immediately after
   `requireProjectAccess` and before any `requirePermission(...)` check, on
