@@ -76,11 +76,18 @@ explicitly rejecting microservices.
 
 ## 3. Full data model (all phases)
 
-Only the Phase 1 subset (`User`, `Session`, `Workspace`, `Role`,
-`RolePermission`, `WorkspaceMembership`, `Invitation`, `AuditLogEntry`)
-is implemented as Prisma models today (`apps/api/prisma/schema.prisma`).
-The rest of this section documents the **target** full schema for later
-phases.
+Every entity below is implemented as a real Prisma model today
+(`apps/api/prisma/schema.prisma`) — the schema file's own header comment is
+a leftover from Phase 1 and undersells how much has been added since; this
+table reflects the actual current schema, not a future target. The "Notes"
+column still cites the phase each entity was introduced in, purely as
+historical provenance.
+
+`Team`/`TeamMembership`, originally sketched here as a possible Phase 2+
+addition, were never built as separate models — `ProjectMembership` (Phase
+2) and `CategoryMembership` (Phase 9) turned out to cover the same
+scoping need one level down from the workspace, so a standalone Team
+concept was dropped rather than left half-implemented.
 
 | Entity | Scope | Notes |
 |---|---|---|
@@ -91,14 +98,12 @@ phases.
 | RolePermission | Workspace-scoped | Role -> permission string mapping |
 | WorkspaceMembership | Workspace-scoped | **The isolation linchpin.** Unique `(workspaceId, userId)` |
 | Invitation | Workspace-scoped | Token-based, hashed token, partial-unique pending per `(workspaceId, email)` |
-| Team | Workspace-scoped | Phase 2+ |
-| TeamMembership | Workspace-scoped | Phase 2+ |
 | Project | Workspace-scoped | Phase 2 |
 | ProjectMembership | Workspace-scoped | Phase 2 (needed for CLIENT project-level scoping) |
 | TaskCategory | Project-scoped | Phase 9. Required sub-division inside a project; owns its own board. `CategoryVisibility` (`workspace`/`private`) mirrors `ProjectVisibility` one level down. New projects start with **zero** categories (deliberate; see docs/PHASES.md Phase 9) |
 | CategoryMembership | Project-scoped (via category) | Phase 9. Mirrors `ProjectMembership` exactly, one level down |
-| BoardColumn/Status | Category-scoped | Phase 2, re-scoped in Phase 9 from `projectId` to `categoryId` (each category now owns its own board; `projectId`/`workspaceId` stay denormalized alongside `categoryId`) |
-| Task | Category-scoped | `parentTaskId` for subtasks, `version` column for optimistic concurrency, `workspaceId`/`projectId` denormalized; Phase 2, re-scoped in Phase 9 to add a required `categoryId` (a task belongs to exactly one category) |
+| BoardColumn/Status | Category-scoped | Phase 2, re-scoped in Phase 9 from `projectId` to `categoryId` (each category now owns its own board; `projectId`/`workspaceId` stay denormalized alongside `categoryId`). Optional nullable `color` (hex string) added post-Phase-9 for a custom per-column accent, independent of the todo/in_progress/done `category` enum; falls back to the category-based default color when unset |
+| Task | Category-scoped | `parentTaskId` for subtasks, `version` column for optimistic concurrency, `workspaceId`/`projectId` denormalized; Phase 2, re-scoped in Phase 9 to add a required `categoryId` (a task belongs to exactly one category). `completedAt` is the single source of truth for "done" (set automatically on a done-category column transition, or explicitly via the task-completion checkbox without moving the task's column) — analytics keys off this field directly, never the task's current column category |
 | Label / TaskLabel | Project-scoped | Phase 2. Deliberately NOT category-scoped — kept separate from Categories (Phase 9): free-form, multi-select, per-task tags vs. a structural grouping |
 | TaskAssignee | Task-scoped | Phase 2 |
 | Milestone | Project-scoped | Phase 2. Deliberately NOT category-scoped (Phase 9) — milestones remain project-wide |
@@ -173,17 +178,31 @@ other layer in this system.
 | 13 | Privilege leak via error/existence | Unauthorized workspace access returns 404, not 403. |
 | 14 | Category-level isolation bypass (Phase 9) | `requireCategoryAccess` enforces the same live, never-cached, 404-not-403 pattern as `requireProjectAccess`, one level down, on every category/column/task/comment/attachment route; every task/column/comment/attachment query is scoped by `categoryId`, not merely `projectId`, so a resource in category A is never reachable via category B's URL even within the same project; real-time task/column/comment/attachment events broadcast to the category's Socket.IO room only (never also the parent project's room), and `revalidateRoomsForUser` re-checks category-room membership on every permission-change sweep the same way it already does for project rooms; the project-wide activity feed and analytics endpoints both narrow their result sets to the caller's visible-category-id set via a single shared helper (`listVisibleCategoryIdsForUser`), so a private category's data can never leak through an adjacent, differently-scoped endpoint. |
 
-## 5. Modular monolith module map (Phase 1)
+## 5. Modular monolith module map (current)
+
+The Phase 1 module set below has grown as later phases shipped; this is
+the full current `apps/api/src/` layout, not just the Phase 1 subset:
 
 ```
 apps/api/src/
-  config/env.ts          Zod-validated environment configuration, fail-fast
-  core/                  prisma, redis, logger (Pino + redaction), errors, health
-  auth/                  password hashing, sessions, register/login/logout/me, first-admin setup
-  rbac/                  request context, guards (requireAuth/requireMembership/requirePermission), rank/last-owner rules
-  workspaces/            workspace CRUD, membership listing/role changes, invitations
-  audit/                 append-only security audit log writer (allowlisted metadata)
-  email/                 email abstraction (dev console transport in Phase 1)
+  config/env.ts     Zod-validated environment configuration, fail-fast
+  core/             prisma, redis, logger (Pino + redaction), errors, health
+  auth/             password hashing, sessions, register/login/logout/me, first-admin setup
+  rbac/             request context, guards (requireAuth/requireMembership/requirePermission/
+                    requireProjectAccess/requireCategoryAccess), rank/last-owner/last-category rules
+  workspaces/       workspace CRUD, membership listing/role changes, invitations
+  audit/            append-only security audit log writer (allowlisted metadata)
+  email/            email abstraction (dev console transport unless SMTP_URL is set)
+  projects/         project CRUD; categories (Phase 9) CRUD + membership; board columns
+                    (incl. custom color); tasks/subtasks (incl. the completion checkbox);
+                    labels; milestones; task dependencies
+  comments/         task comments + @mention parsing (Phase 4)
+  attachments/      file attachments via the StorageProvider abstraction (Phase 4)
+  notifications/    mention/assignment notifications (Phase 4)
+  activity/         per-project/per-category activity feed (Phase 5)
+  analytics/        analytics aggregation + rule-based health-status classification (Phase 6)
+  realtime/         Socket.IO server, workspace/project/category room access rules (Phase 3, extended Phase 9)
+  storage/          StorageProvider interface + local-disk implementation (Phase 4)
 ```
 
 Each module is a Fastify plugin-shaped unit; encapsulation mirrors

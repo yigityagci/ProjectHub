@@ -1,11 +1,15 @@
 # ProjectHub Phase Roadmap
 
-ProjectHub's full v1 scope is delivered incrementally across eight
-phases. This document describes each phase's intent. **All eight phases
-are implemented in this repository as of Phase 8.** Each phase's section
-below describes what it delivered and, honestly, what remains
-scaffolding-tier rather than exhaustively hardened - see each phase's own
-"Scaffolded, not exhaustive" note.
+ProjectHub's v1 scope was delivered incrementally across nine numbered
+phases (Phase 8 closed out the original eight-phase plan; Phase 9 was
+added afterward to introduce Categories). This document describes each
+phase's intent. **All nine phases are implemented in this repository.**
+Each phase's section below describes what it delivered and, honestly,
+what remains scaffolding-tier rather than exhaustively hardened - see each
+phase's own "Scaffolded, not exhaustive" note. A closing section after
+Phase 9 covers feature work that shipped afterward outside the numbered-
+phase structure (Tailwind/responsive fixes, the visual redesign, custom
+column colors, and the task-completion checkbox).
 
 ## Phase 1 — Foundation: Auth, Workspaces, RBAC scaffold (implemented)
 
@@ -670,3 +674,65 @@ feature that wasn't called out as in-scope for this change. There is no
 bulk "move all tasks from category A to category B" affordance; moving a
 task between categories today would require deleting and recreating it
 (out of scope for this pass).
+
+## After Phase 9 — visual polish and the task-completion checkbox
+
+Development continued after Categories landed, but as a series of focused
+feature/fix commits rather than another numbered phase — there wasn't a
+new architectural tier to introduce, so forcing one into the phase
+structure would have been ceremony for its own sake. This section closes
+out the history honestly rather than leaving it stop mid-story.
+
+**Tailwind CSS + responsive-layout fixes.** Tailwind was layered in as a
+utility toolkit (`tailwind.config.js`, `postcss.config.js`, `@tailwind`
+directives in `apps/web/src/styles.css`) alongside the existing
+hand-written `ph-*` design system — not a replacement for it, and its
+colors/theming were left untouched. Tailwind utilities were then used to
+fix concrete layout bugs found by reading each page/component: the Kanban
+board's Board/Activity/Analytics sub-navigation could overflow on narrow
+screens for lack of flex-wrap; analytics bar-chart label columns
+(workload/status/priority/milestone breakdowns) could overflow on long
+labels for lack of `min-width: 0`/truncation, worse on the narrower mobile
+grid; and project/category/workspace list rows could have their layout
+distorted by long names for lack of `truncate`/`shrink-0` on the name and
+status/role badge.
+
+**Visual redesign.** The frontend was functionally complete but visually
+plain — flat cards, tiny Unicode glyphs standing in for drag/rename/
+delete/close icons, unstyled selects, no shadows or button hierarchy. This
+pass evolved the existing `--ph-*` design system rather than replacing it:
+a richer indigo brand palette (`#4F46E5` light / `#6366F1` dark) with a
+subtle gradient on primary buttons and the brand mark, layered on top of
+the existing sky-blue-family palette; real layered elevation
+(`--ph-shadow-sm/md/lg`) on every card/column/task-card/modal/dropdown,
+with a smooth hover-lift on interactive rows; a clear primary/secondary/
+ghost-icon button hierarchy, with ghost/icon buttons (drag handle, rename,
+delete, close) getting consistent 30-34px hit targets; and hand-written
+SVG icons (`apps/web/src/components/Icons.tsx`) replacing the Unicode
+glyphs. Dark mode (Phase 7) was preserved and re-verified across the new
+palette/elevation, not reworked.
+
+**Optional custom column color.** `BoardColumn` gained a nullable `color`
+field (hex string), independent of the existing todo/in_progress/done
+`category` enum classification, so two columns that share a category
+bucket (e.g. two "in_progress" columns) can look different, or a user can
+simply pick a color they like. It's set via a native `<input
+type="color">` in the add-column/rename-column forms with a "reset to
+default" clear button; unset falls back to the existing category-based
+default color.
+
+**Task-completion checkbox with per-column revertible history.** Tasks
+can now be checked off independently of which column they sit in.
+Checking a task sets `Task.completedAt` — the same field `moveTask`
+already set automatically on a done-category column transition — without
+moving the task's `columnId`; the task then disappears from that column's
+normal list into that same column's "History" panel, from which it can be
+reverted (clearing `completedAt` again). This also fixed a real bug in the
+analytics engine: `isDoneTask` (and the dependency-blocking checks in
+`apps/api/src/analytics/analytics.service.ts`) previously keyed off the
+task's current column category for most metrics, which meant a
+checkbox-completed task sitting in a non-done column was undercounted
+everywhere except `averageCompletionTimeHours`/`completedOverTime` (the
+two metrics that already read `completedAt` directly). Every metric now
+keys off `completedAt` alone, consistently, per the doc comment above
+`isDoneTask`.
