@@ -9,7 +9,13 @@ import {
   useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  horizontalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
@@ -18,6 +24,7 @@ import NotificationBell from "../components/NotificationBell.js";
 import ThemeToggle from "../components/ThemeToggle.js";
 import ActivityFeed from "../components/ActivityFeed.js";
 import TaskDetailModal from "./TaskDetailModal.js";
+import CreateTaskModal from "./CreateTaskModal.js";
 import type { CurrentUser } from "../App.js";
 import type { Task } from "./task-types.js";
 
@@ -28,8 +35,26 @@ interface BoardColumn {
   position: number;
 }
 
+// Plain-English labels for the `ColumnCategory` enum (packages/shared/src/dto/board.ts).
+const COLUMN_CATEGORY_OPTIONS: Array<{ value: "todo" | "in_progress" | "done"; label: string }> = [
+  { value: "todo", label: "To Do" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "done", label: "Done" },
+];
+
+// Sortable ids for the column-reorder drag layer are prefixed so they never
+// collide with the plain columnId used elsewhere (task drop targets via
+// `ColumnDropZone`, `tasksByColumn` keys, the move-task API, etc.) — those
+// two id spaces are registered as separate droppables within the very same
+// `DndContext` and must stay disjoint.
+const COLUMN_DRAG_PREFIX = "column-drag:";
+
 const CAN_EDIT_TASK_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER", "MEMBER"]);
 const CAN_CREATE_TASK_ROLES = CAN_EDIT_TASK_ROLES;
+// Mirrors the `board.manage` permission grant (OWNER/ADMIN/PROJECT_MANAGER —
+// see packages/shared/src/roles.ts); MEMBER/VIEWER/CLIENT never see any
+// column-management affordance, only the read-only board they already have.
+const CAN_MANAGE_BOARD_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
 
 function midpointPosition(prev: number | null, next: number | null): number {
   if (prev === null && next === null) return 1;
@@ -94,8 +119,17 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [toast, setToast] = useState<{ message: string; error?: boolean } | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [newTaskTitleByColumn, setNewTaskTitleByColumn] = useState<Record<string, string>>({});
+  const [createTaskColumnId, setCreateTaskColumnId] = useState<string | null>(null);
   const [view, setView] = useState<"board" | "activity">("board");
+
+  // Column ("category") management — Phase 2's board.manage-gated CRUD,
+  // surfaced directly on the board for OWNER/ADMIN/PROJECT_MANAGER.
+  const [addingColumn, setAddingColumn] = useState(false);
+  const [newColumnName, setNewColumnName] = useState("");
+  const [newColumnCategory, setNewColumnCategory] = useState<"todo" | "in_progress" | "done">("todo");
+  const [editingColumnId, setEditingColumnId] = useState<string | null>(null);
+  const [editingColumnName, setEditingColumnName] = useState("");
+  const [editingColumnCategory, setEditingColumnCategory] = useState<"todo" | "in_progress" | "done">("todo");
 
   // Phase 7 search/filter: filtered client-side against the board already
   // fetched in full for this project (simpler and equally correct for a
@@ -251,22 +285,77 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
 
   const canEditTasks = role !== null && CAN_EDIT_TASK_ROLES.has(role);
   const canCreateTasks = role !== null && CAN_CREATE_TASK_ROLES.has(role);
+  const canManageBoard = role !== null && CAN_MANAGE_BOARD_ROLES.has(role);
+
+  /**
+   * Resolves whatever `over.id` dnd-kit's collision detection landed on to
+   * the column it should be interpreted as belonging to, regardless of
+   * whether it's a column-drag handle id (`COLUMN_DRAG_PREFIX`-prefixed), a
+   * task id, or a plain column id (the `ColumnDropZone` empty-column
+   * droppable). Used by both the column-reorder and task-move branches of
+   * `handleDragEnd` below.
+   */
+  function resolveOverColumnId(overId: string): string | null {
+    if (overId.startsWith(COLUMN_DRAG_PREFIX)) return overId.slice(COLUMN_DRAG_PREFIX.length);
+    const overTask = tasks.find((t) => t.id === overId);
+    if (overTask) return overTask.columnId;
+    if ((columns ?? []).some((c) => c.id === overId)) return overId;
+    return null;
+  }
+
+  async function handleColumnReorder(activeColumnId: string, overId: string) {
+    if (!canManageBoard || !workspaceId || !projectId || !columns) return;
+    const overColumnId = resolveOverColumnId(overId);
+    if (!overColumnId || overColumnId === activeColumnId) return;
+
+    const oldIndex = columns.findIndex((c) => c.id === activeColumnId);
+    const newIndex = columns.findIndex((c) => c.id === overColumnId);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const previousColumns = columns;
+    const reordered = arrayMove(columns, oldIndex, newIndex);
+    setColumns(reordered);
+
+    try {
+      const res = await api.post<{ columns: BoardColumn[] }>(
+        `/api/workspaces/${workspaceId}/projects/${projectId}/columns/reorder`,
+        { columnIds: reordered.map((c) => c.id) },
+      );
+      setColumns(res.columns.sort((a, b) => a.position - b.position));
+    } catch (err) {
+      setColumns(previousColumns);
+      showToast(err instanceof ApiError ? err.message : "Could not reorder columns.", true);
+    }
+  }
 
   async function handleDragEnd(event: DragEndEvent) {
-    if (!canEditTasks || !workspaceId || !projectId) return;
+    if (!workspaceId || !projectId) return;
     const { active, over } = event;
     if (!over) return;
+
+    const activeIdRaw = String(active.id);
+    if (activeIdRaw.startsWith(COLUMN_DRAG_PREFIX)) {
+      await handleColumnReorder(activeIdRaw.slice(COLUMN_DRAG_PREFIX.length), String(over.id));
+      return;
+    }
+
+    if (!canEditTasks) return;
 
     const activeId = String(active.id);
     const overId = String(over.id);
     const activeTask = tasks.find((t) => t.id === activeId);
     if (!activeTask) return;
 
-    const isColumnTarget = (columns ?? []).some((c) => c.id === overId);
+    // `overId` may resolve to a column-drag handle id if the pointer landed
+    // near a column header while dragging a task card — normalize through
+    // the same helper column-reordering uses so that edge case still drops
+    // the task into that column rather than silently no-op'ing.
+    const overIsColumnHandle = overId.startsWith(COLUMN_DRAG_PREFIX);
+    const isColumnTarget = overIsColumnHandle || (columns ?? []).some((c) => c.id === overId);
     let targetColumnId: string;
     let overTaskId: string | null = null;
     if (isColumnTarget) {
-      targetColumnId = overId;
+      targetColumnId = overIsColumnHandle ? overId.slice(COLUMN_DRAG_PREFIX.length) : overId;
     } else {
       const overTask = tasks.find((t) => t.id === overId);
       if (!overTask) return;
@@ -312,19 +401,117 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     }
   }
 
-  async function handleCreateTask(columnId: string) {
-    if (!workspaceId || !projectId) return;
-    const title = (newTaskTitleByColumn[columnId] ?? "").trim();
-    if (!title) return;
+  async function handleCreateTask(
+    columnId: string,
+    input: {
+      title: string;
+      description?: string;
+      priority?: Task["priority"];
+      startDate?: string | null;
+      dueDate?: string | null;
+    },
+  ): Promise<Task | null> {
+    if (!workspaceId || !projectId) return null;
+    const title = input.title.trim();
+    if (!title) return null;
     try {
       const res = await api.post<{ task: Task }>(
         `/api/workspaces/${workspaceId}/projects/${projectId}/tasks`,
-        { title, columnId },
+        {
+          title,
+          columnId,
+          ...(input.description ? { description: input.description } : {}),
+          ...(input.priority ? { priority: input.priority } : {}),
+          ...(input.startDate ? { startDate: input.startDate } : {}),
+          ...(input.dueDate ? { dueDate: input.dueDate } : {}),
+        },
       );
-      setTasks((prev) => [...prev, res.task]);
-      setNewTaskTitleByColumn((prev) => ({ ...prev, [columnId]: "" }));
+      // Idempotent: the server's own "task.created" broadcast (see
+      // onTaskCreated above) is racing this REST response over a separate
+      // connection and may already have appended this exact task by id —
+      // mirror that handler's dedupe guard so we never render the same
+      // task twice, replacing with the freshest server state either way.
+      setTasks((prev) =>
+        prev.some((t) => t.id === res.task.id)
+          ? prev.map((t) => (t.id === res.task.id ? res.task : t))
+          : [...prev, res.task],
+      );
+      return res.task;
     } catch (err) {
       showToast(err instanceof ApiError ? err.message : "Could not create this task.", true);
+      return null;
+    }
+  }
+
+  async function handleAddColumn() {
+    if (!canManageBoard || !workspaceId || !projectId) return;
+    const name = newColumnName.trim();
+    if (!name) return;
+    try {
+      const res = await api.post<{ column: BoardColumn }>(
+        `/api/workspaces/${workspaceId}/projects/${projectId}/columns`,
+        { name, category: newColumnCategory },
+      );
+      // Same idempotent-append guard as handleCreateTask: the "board.column.changed"
+      // socket broadcast (handled by onBoardColumnChanged -> load(), a full
+      // refetch/replace) may resolve before this REST response does, so an
+      // unconditional append here could double up this column.
+      setColumns((prev) => {
+        const list = prev ?? [];
+        const next = list.some((c) => c.id === res.column.id)
+          ? list.map((c) => (c.id === res.column.id ? res.column : c))
+          : [...list, res.column];
+        return next.sort((a, b) => a.position - b.position);
+      });
+      setNewColumnName("");
+      setNewColumnCategory("todo");
+      setAddingColumn(false);
+    } catch (err) {
+      showToast(err instanceof ApiError ? err.message : "Could not create this column.", true);
+    }
+  }
+
+  function startRenameColumn(column: BoardColumn) {
+    setEditingColumnId(column.id);
+    setEditingColumnName(column.name);
+    setEditingColumnCategory((column.category as "todo" | "in_progress" | "done") ?? "todo");
+  }
+
+  function cancelRenameColumn() {
+    setEditingColumnId(null);
+  }
+
+  async function handleSaveRenameColumn(columnId: string) {
+    if (!canManageBoard || !workspaceId || !projectId) return;
+    const name = editingColumnName.trim();
+    if (!name) return;
+    try {
+      const res = await api.patch<{ column: BoardColumn }>(
+        `/api/workspaces/${workspaceId}/projects/${projectId}/columns/${columnId}`,
+        { name, category: editingColumnCategory },
+      );
+      setColumns((prev) =>
+        (prev ?? []).map((c) => (c.id === res.column.id ? res.column : c)).sort((a, b) => a.position - b.position),
+      );
+      setEditingColumnId(null);
+    } catch (err) {
+      showToast(err instanceof ApiError ? err.message : "Could not rename this column.", true);
+    }
+  }
+
+  async function handleDeleteColumn(columnId: string) {
+    if (!canManageBoard || !workspaceId || !projectId) return;
+    if (!confirm("Delete this column? This cannot be undone.")) return;
+    try {
+      await api.delete(`/api/workspaces/${workspaceId}/projects/${projectId}/columns/${columnId}`);
+      setColumns((prev) => (prev ?? []).filter((c) => c.id !== columnId));
+    } catch (err) {
+      // The server enforces Restrict (409) when the column still has tasks —
+      // surface that exact message rather than a generic failure.
+      showToast(
+        err instanceof ApiError ? err.message : "Could not delete this column. Please try again.",
+        true,
+      );
     }
   }
 
@@ -442,71 +629,223 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
           <p>Loading...</p>
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
-            <div className="ph-board">
-              {columns.map((column) => {
-                const columnTasks = tasksByColumn.get(column.id) ?? [];
-                return (
-                  <div key={column.id} className="ph-board-column">
-                    <div className="ph-board-column-header">
-                      <h2>{column.name}</h2>
-                      <span className="ph-board-column-count">{columnTasks.length}</span>
-                    </div>
-                    <SortableContext
-                      items={columnTasks.map((t) => t.id)}
-                      strategy={verticalListSortingStrategy}
-                    >
-                      <ColumnDropZone columnId={column.id}>
-                        {columnTasks.length === 0 ? (
-                          <div className="ph-empty-state" style={{ padding: "1rem 0.5rem" }}>
-                            No tasks yet.
+            <SortableContext
+              items={columns.map((c) => `${COLUMN_DRAG_PREFIX}${c.id}`)}
+              strategy={horizontalListSortingStrategy}
+            >
+              <div className="ph-board">
+                {columns.map((column) => {
+                  const columnTasks = tasksByColumn.get(column.id) ?? [];
+                  const isEditing = editingColumnId === column.id;
+                  return (
+                    <BoardColumnShell key={column.id} columnId={column.id} draggable={canManageBoard}>
+                      {(dragHandleProps) => (
+                      <>
+                      <div className="ph-board-column-header">
+                        {isEditing ? (
+                          <div className="ph-inline-form" style={{ flexDirection: "column", alignItems: "stretch", gap: "0.35rem", width: "100%" }}>
+                            <input
+                              value={editingColumnName}
+                              onChange={(e) => setEditingColumnName(e.target.value)}
+                              aria-label="Column name"
+                              autoFocus
+                            />
+                            <select
+                              value={editingColumnCategory}
+                              onChange={(e) =>
+                                setEditingColumnCategory(e.target.value as "todo" | "in_progress" | "done")
+                              }
+                              aria-label="Column category"
+                            >
+                              {COLUMN_CATEGORY_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
+                            <div style={{ display: "flex", gap: "0.4rem" }}>
+                              <button
+                                type="button"
+                                className="ph-button"
+                                style={{ width: "auto" }}
+                                onClick={() => handleSaveRenameColumn(column.id)}
+                              >
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                className="ph-button ph-button-secondary"
+                                style={{ width: "auto" }}
+                                onClick={cancelRenameColumn}
+                              >
+                                Cancel
+                              </button>
+                            </div>
                           </div>
                         ) : (
-                          columnTasks.map((task) => (
-                            <TaskCard
-                              key={task.id}
-                              task={task}
-                              draggable={canEditTasks}
-                              onOpen={() => setSelectedTaskId(task.id)}
-                            />
-                          ))
+                          <>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", minWidth: 0 }}>
+                              {canManageBoard && (
+                                <button
+                                  type="button"
+                                  className="ph-icon-btn ph-column-drag-handle"
+                                  aria-label={`Reorder ${column.name}`}
+                                  title="Drag to reorder"
+                                  {...dragHandleProps.attributes}
+                                  {...dragHandleProps.listeners}
+                                >
+                                  ⠿
+                                </button>
+                              )}
+                              <h2>{column.name}</h2>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                              <span className="ph-board-column-count">{columnTasks.length}</span>
+                              {canCreateTasks && (
+                                <button
+                                  type="button"
+                                  className="ph-icon-btn"
+                                  aria-label={`Add a task to ${column.name}`}
+                                  title="Add a task"
+                                  onClick={() => setCreateTaskColumnId(column.id)}
+                                >
+                                  +
+                                </button>
+                              )}
+                              {canManageBoard && (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="ph-icon-btn"
+                                    aria-label={`Rename ${column.name}`}
+                                    title="Rename column"
+                                    onClick={() => startRenameColumn(column)}
+                                  >
+                                    ✎
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="ph-icon-btn"
+                                    aria-label={`Delete ${column.name}`}
+                                    title="Delete column"
+                                    onClick={() => handleDeleteColumn(column.id)}
+                                  >
+                                    🗑
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </>
                         )}
-                      </ColumnDropZone>
-                    </SortableContext>
-                    {canCreateTasks && (
-                      <form
-                        style={{ marginTop: "0.6rem" }}
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          handleCreateTask(column.id);
-                        }}
+                      </div>
+                      <SortableContext
+                        items={columnTasks.map((t) => t.id)}
+                        strategy={verticalListSortingStrategy}
                       >
+                        <ColumnDropZone columnId={column.id}>
+                          {columnTasks.length === 0 ? (
+                            <div className="ph-empty-state" style={{ padding: "1rem 0.5rem" }}>
+                              No tasks yet.
+                            </div>
+                          ) : (
+                            columnTasks.map((task) => (
+                              <TaskCard
+                                key={task.id}
+                                task={task}
+                                draggable={canEditTasks}
+                                onOpen={() => setSelectedTaskId(task.id)}
+                              />
+                            ))
+                          )}
+                        </ColumnDropZone>
+                      </SortableContext>
+                      </>
+                      )}
+                    </BoardColumnShell>
+                  );
+                })}
+
+                {canManageBoard && (
+                  <div className="ph-board-column ph-board-column-add">
+                    {addingColumn ? (
+                      <div className="ph-inline-form" style={{ flexDirection: "column", alignItems: "stretch", gap: "0.4rem" }}>
                         <input
-                          placeholder="Add a task..."
-                          value={newTaskTitleByColumn[column.id] ?? ""}
-                          onChange={(e) =>
-                            setNewTaskTitleByColumn((prev) => ({ ...prev, [column.id]: e.target.value }))
-                          }
-                          style={{
-                            width: "100%",
-                            padding: "0.4rem 0.5rem",
-                            borderRadius: "6px",
-                            border: "1px solid var(--ph-border)",
-                            fontSize: "0.85rem",
-                            background: "transparent",
-                            color: "inherit",
-                          }}
+                          placeholder="Column name"
+                          value={newColumnName}
+                          onChange={(e) => setNewColumnName(e.target.value)}
+                          aria-label="New column name"
+                          autoFocus
                         />
-                      </form>
+                        <select
+                          value={newColumnCategory}
+                          onChange={(e) => setNewColumnCategory(e.target.value as "todo" | "in_progress" | "done")}
+                          aria-label="New column category"
+                        >
+                          {COLUMN_CATEGORY_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                        <div style={{ display: "flex", gap: "0.4rem" }}>
+                          <button
+                            type="button"
+                            className="ph-button"
+                            style={{ width: "auto" }}
+                            disabled={!newColumnName.trim()}
+                            onClick={handleAddColumn}
+                          >
+                            Add
+                          </button>
+                          <button
+                            type="button"
+                            className="ph-button ph-button-secondary"
+                            style={{ width: "auto" }}
+                            onClick={() => {
+                              setAddingColumn(false);
+                              setNewColumnName("");
+                              setNewColumnCategory("todo");
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="ph-button ph-button-secondary"
+                        onClick={() => setAddingColumn(true)}
+                      >
+                        + Add column
+                      </button>
                     )}
                   </div>
-                );
-              })}
-            </div>
+                )}
+              </div>
+            </SortableContext>
           </DndContext>
         )}
       </div>
 
       {toast && <div className={`ph-toast${toast.error ? " ph-toast-error" : ""}`}>{toast.message}</div>}
+
+      {createTaskColumnId && workspaceId && projectId && (
+        <CreateTaskModal
+          onClose={() => setCreateTaskColumnId(null)}
+          onCreate={async (input) => {
+            const created = await handleCreateTask(createTaskColumnId, input);
+            if (created) {
+              setCreateTaskColumnId(null);
+              // Continue the flow into the full task editor so the user can
+              // immediately add assignees/labels/etc. — the creation modal
+              // deliberately doesn't support those (see CreateTaskModal.tsx).
+              setSelectedTaskId(created.id);
+            }
+            return created;
+          }}
+        />
+      )}
 
       {selectedTaskId && workspaceId && projectId && (
         <TaskDetailModal
@@ -521,6 +860,46 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
           onDeleted={handleTaskDeleted}
         />
       )}
+    </div>
+  );
+}
+
+interface DragHandleProps {
+  attributes: ReturnType<typeof useSortable>["attributes"];
+  listeners: ReturnType<typeof useSortable>["listeners"];
+}
+
+function BoardColumnShell({
+  columnId,
+  draggable,
+  children,
+}: {
+  columnId: string;
+  draggable: boolean;
+  children: (dragHandleProps: DragHandleProps) => React.ReactNode;
+}) {
+  // The column itself is the sortable node (using the prefixed drag id — see
+  // COLUMN_DRAG_PREFIX), but `attributes`/`listeners` are handed to the
+  // caller to attach to a small dedicated drag-handle icon in the header
+  // only — never to the whole column — so header buttons stay clickable and
+  // task cards inside remain independently draggable via their own
+  // `useSortable` in `TaskCard`, without both trying to claim the same
+  // pointerdown.
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: `${COLUMN_DRAG_PREFIX}${columnId}`,
+    disabled: !draggable,
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`ph-board-column${isDragging ? " ph-board-column-dragging" : ""}`}
+    >
+      {children({ attributes, listeners })}
     </div>
   );
 }

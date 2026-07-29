@@ -434,11 +434,57 @@ body {
 .ph-board-column-header h2 {
   font-size: 0.9rem;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .ph-board-column-count {
   font-size: 0.75rem;
   color: var(--ph-muted);
+}
+
+.ph-board-column.ph-board-column-dragging {
+  opacity: 0.5;
+}
+
+.ph-board-column.ph-board-column-add {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 0.75rem;
+  background: transparent;
+  border-style: dashed;
+}
+
+.ph-board-column-add .ph-button {
+  width: auto;
+}
+
+.ph-icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font-size: 0.8rem;
+  line-height: 1;
+  padding: 0.15rem 0.3rem;
+  border-radius: 4px;
+  opacity: 0.75;
+}
+
+.ph-icon-btn:hover {
+  opacity: 1;
+  background: var(--ph-bg);
+}
+
+.ph-column-drag-handle {
+  cursor: grab;
+}
+
+.ph-column-drag-handle:active {
+  cursor: grabbing;
 }
 
 .ph-board-column-body {
