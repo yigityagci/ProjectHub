@@ -106,4 +106,43 @@ describe("Optimistic concurrency on Task updates", () => {
     expect(validMove.statusCode).toBe(200);
     expect(validMove.json().task.columnId).toBe(inProgress.id);
   });
+
+  it("the completed checkbox round-trips through the same optimistic-concurrency PATCH path, without moving columns", async () => {
+    const createRes = await owner.post(
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks`,
+      { title: "Checkbox me" },
+    );
+    const created = createRes.json().task;
+    expect(created.completedAt).toBeNull();
+    const originalColumnId = created.columnId;
+
+    // Checking it off sets completedAt and bumps version, but never touches columnId.
+    const checkRes = await owner.patch(
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks/${created.id}`,
+      { version: created.version, completed: true },
+    );
+    expect(checkRes.statusCode).toBe(200);
+    const checked = checkRes.json().task;
+    expect(checked.completedAt).not.toBeNull();
+    expect(checked.columnId).toBe(originalColumnId);
+    expect(checked.version).toBe(created.version + 1);
+
+    // A stale-version attempt still gets a 409, exactly like every other field.
+    const staleRes = await owner.patch(
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks/${created.id}`,
+      { version: created.version, completed: false },
+    );
+    expect(staleRes.statusCode).toBe(409);
+    expect(staleRes.json().error.code).toBe("VERSION_CONFLICT");
+    expect(staleRes.json().currentTask.completedAt).not.toBeNull();
+
+    // Reverting (uncheck) with the current version clears completedAt again.
+    const revertRes = await owner.patch(
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks/${created.id}`,
+      { version: checked.version, completed: false },
+    );
+    expect(revertRes.statusCode).toBe(200);
+    expect(revertRes.json().task.completedAt).toBeNull();
+    expect(revertRes.json().task.columnId).toBe(originalColumnId);
+  });
 });

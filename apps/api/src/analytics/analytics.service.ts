@@ -7,16 +7,24 @@ import { computeHealthStatus, type HealthStatusInput } from "./health-status.js"
 const COMPLETED_OVER_TIME_WINDOW_DAYS = 30;
 const RECENT_ACTIVITY_LIMIT = 10;
 
-const DONE_CATEGORY = "done";
-
 interface ProjectTimelineFields {
   startDate: Date | null;
   targetDate: Date | null;
   createdAt: Date;
 }
 
-function isDoneTask(t: { column: { category: string } }): boolean {
-  return t.column.category === DONE_CATEGORY;
+/**
+ * "Done" is keyed off `Task.completedAt` alone, NOT the category of the
+ * column the task currently sits in. `completedAt` is the single source of
+ * truth for completion (see tasks.service.ts#updateTask/moveTask): it's set
+ * either automatically when a task's column transitions into a
+ * `done`-category column, or explicitly via the checkbox affordance — which
+ * deliberately does NOT move the task to a different column. A task can
+ * therefore be "done" while still sitting in a `todo`/`in_progress` column,
+ * and every metric below must reflect that.
+ */
+function isDoneTask(t: { completedAt: Date | null }): boolean {
+  return t.completedAt !== null;
 }
 
 /**
@@ -60,8 +68,11 @@ export async function getProjectAnalytics(
   const openTasks = tasks.filter((t) => !isDoneTask(t));
   const overdueOpenTasks = openTasks.filter((t) => t.dueDate !== null && t.dueDate.getTime() < now.getTime());
 
+  // A dependency edge stops blocking once its blocking task is completed —
+  // again keyed off `completedAt`, not the blocking task's column category
+  // (see isDoneTask above).
   const isBlocked = (t: (typeof tasks)[number]) =>
-    t.blockedByEdges.some((edge) => edge.blockingTask.column.category !== DONE_CATEGORY);
+    t.blockedByEdges.some((edge) => edge.blockingTask.completedAt === null);
   const blockedOpenTasks = openTasks.filter(isBlocked);
 
   const completionPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
@@ -161,7 +172,7 @@ export async function getProjectAnalytics(
   let maxBlockedHighOrUrgentDays = 0;
   for (const t of blockedHighOrUrgentTasks) {
     for (const edge of t.blockedByEdges) {
-      if (edge.blockingTask.column.category === DONE_CATEGORY) continue;
+      if (edge.blockingTask.completedAt !== null) continue;
       const days = (now.getTime() - edge.createdAt.getTime()) / (1000 * 60 * 60 * 24);
       if (days > maxBlockedHighOrUrgentDays) maxBlockedHighOrUrgentDays = days;
     }

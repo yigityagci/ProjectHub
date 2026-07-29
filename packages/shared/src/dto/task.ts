@@ -36,6 +36,14 @@ export type CreateTaskInput = z.infer<typeof createTaskSchema>;
  * optimistic-concurrency WHERE precondition server-side — it is never
  * written back to the row verbatim (the row's stored version is always
  * bumped via `{ increment: 1 }`).
+ *
+ * `completed` is a boolean *intent*, mirroring that same safety posture: the
+ * client can only ever ask to mark a task done/not-done, never supply a raw
+ * `completedAt` timestamp directly — the server alone decides the actual
+ * stored value (`new Date()` or `null`). This is a second, independent way
+ * to set the same `Task.completedAt` field `moveTask` already sets
+ * automatically on a done-category column transition; setting it here never
+ * changes the task's `columnId`.
  */
 export const updateTaskSchema = z
   .object({
@@ -47,6 +55,7 @@ export const updateTaskSchema = z
     milestoneId: z.string().min(1).nullable().optional(),
     startDate: z.coerce.date().nullable().optional(),
     dueDate: z.coerce.date().nullable().optional(),
+    completed: z.boolean().optional(),
   })
   .strict();
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;

@@ -165,6 +165,51 @@ describe("Phase 5/6: activity feed + analytics", () => {
     expect(Array.isArray(analytics.recentActivity)).toBe(true);
   });
 
+  it("a task checked off via the completed checkbox (never dragged into a done-category column) is reflected in analytics", async () => {
+    const before = await owner.get(`/api/workspaces/${w1Id}/projects/${projectId}/analytics`);
+    const beforeTotals = before.json().analytics.totals as { totalTasks: number; completedTasks: number };
+
+    // Deliberately created in — and left in — the todo column, so the only
+    // way this task can count as "completed" is via `completedAt`, never
+    // via a done-category column membership.
+    const taskRes = await owner.post(
+      `/api/workspaces/${w1Id}/projects/${projectId}/categories/${categoryId}/tasks`,
+      { title: "Checked off without ever touching Done", columnId: todoColumnId },
+    );
+    const task = taskRes.json().task;
+    expect(task.columnId).toBe(todoColumnId);
+
+    const checkRes = await owner.patch(
+      `/api/workspaces/${w1Id}/projects/${projectId}/categories/${categoryId}/tasks/${task.id}`,
+      { version: task.version, completed: true },
+    );
+    expect(checkRes.statusCode).toBe(200);
+    const checked = checkRes.json().task;
+    expect(checked.completedAt).not.toBeNull();
+    // Confirms the design decision: completion never moves the task's column.
+    expect(checked.columnId).toBe(todoColumnId);
+
+    const after = await owner.get(`/api/workspaces/${w1Id}/projects/${projectId}/analytics`);
+    const afterAnalytics = after.json().analytics;
+    const afterTotals = afterAnalytics.totals as {
+      totalTasks: number;
+      completedTasks: number;
+      completionPercentage: number;
+    };
+
+    expect(afterTotals.totalTasks).toBe(beforeTotals.totalTasks + 1);
+    expect(afterTotals.completedTasks).toBe(beforeTotals.completedTasks + 1);
+
+    // The average-completion-time metric is derived from completedAt too;
+    // it must not be null/undefined once at least one task has it set.
+    expect(afterAnalytics.averageCompletionTimeHours).not.toBeNull();
+
+    // The 30-day completed-over-time series (built straight off completedAt
+    // in SQL) must include today's checkbox completion.
+    const todayBucket = (afterAnalytics.completedOverTime as Array<{ day: string; count: number }>).at(-1)!;
+    expect(todayBucket.count).toBeGreaterThanOrEqual(1);
+  });
+
   it("MEMBER without analytics.view is forbidden from the analytics endpoint", async () => {
     const member = await inviteAndAccept(app, owner, w1Id, "aa-member@example.com", "MEMBER");
     const res = await member.get(`/api/workspaces/${w1Id}/projects/${projectId}/analytics`);

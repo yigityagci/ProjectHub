@@ -55,7 +55,7 @@ export const AT_RISK_BLOCKED_HIGH_OR_URGENT_COUNT_THRESHOLD = 2;
 export const AT_RISK_MILESTONE_GAP_POINTS_THRESHOLD = 20;
 
 export interface HealthStatusInput {
-  /** Tasks not in a `done`-category column. */
+  /** Tasks without a `completedAt` timestamp (see analytics.service.ts#isDoneTask). */
   openTaskCount: number;
   /** Of the open tasks, how many have a past-due `dueDate`. */
   overdueOpenTaskCount: number;

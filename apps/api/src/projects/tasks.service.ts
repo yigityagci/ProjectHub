@@ -245,6 +245,14 @@ export async function updateTask(
   if (rest.milestoneId !== undefined) data.milestoneId = rest.milestoneId;
   if (rest.startDate !== undefined) data.startDate = rest.startDate;
   if (rest.dueDate !== undefined) data.dueDate = rest.dueDate;
+  // Explicit checkbox completion — independent of `moveTask`'s automatic
+  // done-category completion below: this never touches `columnId`, so a
+  // checked-off task stays in whatever column it was already in and simply
+  // disappears into that same column's completed/"history" view (derived
+  // client-side from `completedAt`, not from a column category). The client
+  // only ever expresses true/false intent; the server alone decides the
+  // stored timestamp.
+  if (rest.completed !== undefined) data.completedAt = rest.completed ? new Date() : null;
 
   const result = await prisma.task.updateMany({
     where: { id: taskId, workspaceId, categoryId, version },

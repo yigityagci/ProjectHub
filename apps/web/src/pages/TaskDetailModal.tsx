@@ -224,6 +224,34 @@ export default function TaskDetailModal({
     }
   }
 
+  // Checkbox affordance for the same completion toggle available on the
+  // compact board card — wired to the identical PATCH call and the same
+  // version-conflict handling as handleSave, since this is just another
+  // task-edit field, not a separate action.
+  async function handleToggleCompleted() {
+    if (!task) return;
+    setError(null);
+    try {
+      const res = await api.patch<{ task: Task }>(`${base}/tasks/${taskId}`, {
+        version: task.version,
+        completed: !task.completedAt,
+      });
+      applyTask(res.task);
+      onUpdated(res.task);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        const body = err.body as { currentTask?: Task } | undefined;
+        if (body?.currentTask) {
+          setConflictTask(body.currentTask);
+        } else {
+          await handleReload();
+        }
+      } else {
+        setError(err instanceof ApiError ? err.message : "Could not update this task's completion state.");
+      }
+    }
+  }
+
   async function handleDelete() {
     if (!confirm("Delete this task? This cannot be undone.")) return;
     try {
@@ -452,6 +480,21 @@ export default function TaskDetailModal({
         )}
 
         {error && <div className="ph-alert ph-alert-error">{error}</div>}
+
+        <label className="ph-task-complete-toggle">
+          <input
+            type="checkbox"
+            checked={Boolean(task.completedAt)}
+            disabled={!canEdit}
+            onChange={handleToggleCompleted}
+            aria-label={task.completedAt ? "Mark task as not done" : "Mark task as done"}
+          />
+          {task.completedAt ? (
+            <span>Completed on {formatDateTime(task.completedAt)}</span>
+          ) : (
+            <span>Mark as done</span>
+          )}
+        </label>
 
         <div className="ph-modal-columns">
           <div>

@@ -100,10 +100,14 @@ function TaskCard({
   task,
   onOpen,
   draggable,
+  canToggleComplete,
+  onToggleComplete,
 }: {
   task: Task;
   onOpen: () => void;
   draggable: boolean;
+  canToggleComplete: boolean;
+  onToggleComplete: (task: Task, completed: boolean) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
@@ -116,29 +120,47 @@ function TaskCard({
   };
 
   return (
-    <button
+    <div
       ref={setNodeRef}
       style={style}
       className={`ph-task-card${isDragging ? " ph-task-card-dragging" : ""}`}
-      onClick={onOpen}
       {...(draggable ? attributes : {})}
       {...(draggable ? listeners : {})}
     >
-      <div className="ph-task-card-title">{task.title}</div>
-      <div className="ph-task-card-meta">
-        <span className={`ph-priority-dot ph-priority-${task.priority}`} title={`Priority: ${task.priority}`} />
-        {task.labels.map((l) => (
-          <span key={l.labelId} className="ph-label-chip" style={{ background: l.color }}>
-            {l.name}
-          </span>
-        ))}
-        {task.assignees.length > 0 && (
-          <span style={{ fontSize: "0.72rem", color: "var(--ph-muted)" }}>
-            {task.assignees.map((a) => a.displayName).join(", ")}
-          </span>
+      <div className="ph-task-card-row">
+        {canToggleComplete && (
+          <input
+            type="checkbox"
+            className="ph-task-checkbox"
+            checked={false}
+            aria-label={`Mark "${task.title}" as done`}
+            title="Mark as done"
+            // Never let this bubble into the card's own drag/click handling —
+            // the checkbox is its own independent control, not the card-open
+            // trigger.
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onChange={() => onToggleComplete(task, true)}
+          />
         )}
+        <button type="button" className="ph-task-card-open" onClick={onOpen}>
+          <div className="ph-task-card-title">{task.title}</div>
+          <div className="ph-task-card-meta">
+            <span className={`ph-priority-dot ph-priority-${task.priority}`} title={`Priority: ${task.priority}`} />
+            {task.labels.map((l) => (
+              <span key={l.labelId} className="ph-label-chip" style={{ background: l.color }}>
+                {l.name}
+              </span>
+            ))}
+            {task.assignees.length > 0 && (
+              <span style={{ fontSize: "0.72rem", color: "var(--ph-muted)" }}>
+                {task.assignees.map((a) => a.displayName).join(", ")}
+              </span>
+            )}
+          </div>
+        </button>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -193,6 +215,12 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [labelFilter, setLabelFilter] = useState("");
   const [overdueOnly, setOverdueOnly] = useState(false);
+
+  // Checkbox-completion "history": which column (if any) currently has its
+  // completed-tasks list expanded. Independent of the search/priority/etc.
+  // filters above — history always shows a column's full completed list,
+  // regardless of the active board filters.
+  const [openHistoryColumnId, setOpenHistoryColumnId] = useState<string | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -311,6 +339,12 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     const q = searchQuery.trim().toLowerCase();
     const now = Date.now();
     return tasks.filter((t) => {
+      // Completed tasks (completedAt set) never render in a column's normal
+      // task list — they live in that same column's "history" instead (see
+      // completedTasksByColumn below). This applies uniformly whether
+      // completion came from the checkbox or from being dragged into a
+      // done-category column, since both set the exact same field.
+      if (t.completedAt) return false;
       if (q && !t.title.toLowerCase().includes(q) && !(t.description ?? "").toLowerCase().includes(q)) {
         return false;
       }
@@ -345,6 +379,25 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     }
     return map;
   }, [filteredTasks]);
+
+  // Per-column "history": every completed task that belongs to this column,
+  // independent of the board's active search/priority/assignee/label/overdue
+  // filters (history is a separate, always-complete view, not another
+  // filtered slice of the board). Derived from the full `tasks` list, not
+  // `filteredTasks`. Most-recently-completed first.
+  const completedTasksByColumn = useMemo(() => {
+    const map = new Map<string, Task[]>();
+    for (const t of tasks) {
+      if (!t.completedAt) continue;
+      const list = map.get(t.columnId) ?? [];
+      list.push(t);
+      map.set(t.columnId, list);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime());
+    }
+    return map;
+  }, [tasks]);
 
   const canEditTasks = role !== null && CAN_EDIT_TASK_ROLES.has(role);
   const canCreateTasks = role !== null && CAN_CREATE_TASK_ROLES.has(role);
@@ -578,6 +631,30 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
 
   function handleTaskUpdated(updated: Task) {
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+  }
+
+  // Checked/unchecked from either the compact card checkbox or a column's
+  // history "Revert" button — same `PATCH .../tasks/:taskId` call the rest
+  // of this file already uses for task edits, with the identical
+  // 409-version-conflict handling (never a silent overwrite). This never
+  // touches `columnId`: the task stays in whatever column it was already in,
+  // it just disappears into (or reappears out of) that same column's
+  // history via `completedAt`.
+  async function handleToggleTaskCompleted(task: Task, completed: boolean) {
+    if (!workspaceId || !projectId) return;
+    try {
+      const res = await api.patch<{ task: Task }>(`${base}/tasks/${task.id}`, {
+        version: task.version,
+        completed,
+      });
+      setTasks((prev) => prev.map((t) => (t.id === res.task.id ? res.task : t)));
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        showToast("This task was changed by someone else. Refresh to see the latest version.", true);
+      } else {
+        showToast(err instanceof ApiError ? err.message : "Could not update this task. Please try again.", true);
+      }
+    }
   }
 
   function handleTaskDeleted(taskId: string) {
@@ -1049,12 +1126,49 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                                 key={task.id}
                                 task={task}
                                 draggable={canEditTasks}
+                                canToggleComplete={canEditTasks}
+                                onToggleComplete={handleToggleTaskCompleted}
                                 onOpen={() => setSelectedTaskId(task.id)}
                               />
                             ))
                           )}
                         </ColumnDropZone>
                       </SortableContext>
+
+                      <div className="ph-board-column-footer">
+                        <button
+                          type="button"
+                          className="ph-column-history-toggle"
+                          onClick={() =>
+                            setOpenHistoryColumnId((prev) => (prev === column.id ? null : column.id))
+                          }
+                        >
+                          {openHistoryColumnId === column.id
+                            ? "Hide history"
+                            : `History (${(completedTasksByColumn.get(column.id) ?? []).length})`}
+                        </button>
+                        {openHistoryColumnId === column.id && (
+                          <ul className="ph-column-history-list">
+                            {(completedTasksByColumn.get(column.id) ?? []).length === 0 && (
+                              <li className="ph-column-history-empty">No completed tasks yet.</li>
+                            )}
+                            {(completedTasksByColumn.get(column.id) ?? []).map((completedTask) => (
+                              <li key={completedTask.id} className="ph-column-history-item">
+                                <span className="ph-column-history-title">{completedTask.title}</span>
+                                {canEditTasks && (
+                                  <button
+                                    type="button"
+                                    className="ph-remove-btn"
+                                    onClick={() => handleToggleTaskCompleted(completedTask, false)}
+                                  >
+                                    Revert
+                                  </button>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
                       </>
                       )}
                     </BoardColumnShell>

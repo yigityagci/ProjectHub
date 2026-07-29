@@ -914,6 +914,95 @@ select:disabled {
   align-items: center;
 }
 
+/* Task-card completion checkbox: the card itself is now a plain (non-button)
+   draggable container so a real <input type="checkbox"> can sit inside it
+   without nesting interactive controls inside a <button> — only the title/
+   meta area (.ph-task-card-open) is the "open task" click target. */
+.ph-task-card-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.ph-task-checkbox {
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+}
+
+.ph-task-card-open {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Per-column completed-task "history" — a small footer link that expands
+   into an inline list, matching the minimal ph-icon-btn/ph-remove-btn visual
+   language already used elsewhere on the board rather than introducing a
+   new modal. */
+.ph-board-column-footer {
+  margin-top: 0.65rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--ph-border);
+}
+
+.ph-column-history-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--ph-muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ph-column-history-toggle:hover {
+  color: var(--ph-text);
+  text-decoration: underline;
+}
+
+.ph-column-history-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.ph-column-history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--ph-border);
+  border-radius: 8px;
+  background: var(--ph-surface-2);
+}
+
+.ph-column-history-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ph-muted);
+  text-decoration: line-through;
+}
+
+.ph-column-history-empty {
+  font-size: 0.78rem;
+  color: var(--ph-muted);
+}
+
 .ph-priority-dot {
   width: 8px;
   height: 8px;
@@ -1012,6 +1101,22 @@ select:disabled {
 .ph-modal-close:hover {
   background: var(--ph-hover-tint);
   color: var(--ph-text);
+}
+
+/* Task detail modal's own "mark complete" checkbox — same PATCH-driven
+   toggle as the board card's checkbox, just surfaced in the full editor. */
+.ph-task-complete-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--ph-muted);
+  margin-bottom: 1rem;
+  cursor: pointer;
+}
+
+.ph-task-complete-toggle input[type="checkbox"] {
+  cursor: pointer;
 }
 
 .ph-modal-columns {
