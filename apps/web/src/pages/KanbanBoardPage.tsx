@@ -19,7 +19,14 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
-import { getSocket, joinWorkspaceRoom, joinProjectRoom, leaveProjectRoom } from "../lib/socket.js";
+import {
+  getSocket,
+  joinWorkspaceRoom,
+  joinProjectRoom,
+  leaveProjectRoom,
+  joinCategoryRoom,
+  leaveCategoryRoom,
+} from "../lib/socket.js";
 import NotificationBell from "../components/NotificationBell.js";
 import ThemeToggle from "../components/ThemeToggle.js";
 import ActivityFeed from "../components/ActivityFeed.js";
@@ -33,6 +40,18 @@ interface BoardColumn {
   name: string;
   category: string;
   position: number;
+}
+
+interface WorkspaceMember {
+  userId: string;
+  email: string;
+  displayName: string;
+}
+
+interface CategoryMember {
+  userId: string;
+  email: string;
+  displayName: string;
 }
 
 // Plain-English labels for the `ColumnCategory` enum (packages/shared/src/dto/board.ts).
@@ -55,6 +74,11 @@ const CAN_CREATE_TASK_ROLES = CAN_EDIT_TASK_ROLES;
 // see packages/shared/src/roles.ts); MEMBER/VIEWER/CLIENT never see any
 // column-management affordance, only the read-only board they already have.
 const CAN_MANAGE_BOARD_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
+// Mirrors the `category.manage` permission grant — same role set as board
+// management today, kept as its own named constant since the two
+// permissions are independent server-side even though the default role
+// grants happen to coincide.
+const CAN_MANAGE_CATEGORY_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
 
 function midpointPosition(prev: number | null, next: number | null): number {
   if (prev === null && next === null) return 1;
@@ -110,10 +134,16 @@ function TaskCard({
 }
 
 export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
-  const { workspaceId, projectId } = useParams<{ workspaceId: string; projectId: string }>();
+  const { workspaceId, projectId, categoryId } = useParams<{
+    workspaceId: string;
+    projectId: string;
+    categoryId: string;
+  }>();
   const navigate = useNavigate();
 
   const [projectName, setProjectName] = useState("");
+  const [categoryName, setCategoryName] = useState("");
+  const [categoryVisibility, setCategoryVisibility] = useState<"workspace" | "private">("workspace");
   const [role, setRole] = useState<string | null>(null);
   const [columns, setColumns] = useState<BoardColumn[] | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -122,8 +152,18 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
   const [createTaskColumnId, setCreateTaskColumnId] = useState<string | null>(null);
   const [view, setView] = useState<"board" | "activity">("board");
 
-  // Column ("category") management — Phase 2's board.manage-gated CRUD,
-  // surfaced directly on the board for OWNER/ADMIN/PROJECT_MANAGER.
+  // Category management (rename/visibility/members/delete) — same
+  // simple-inline-form pattern as column management below, gated on
+  // category.manage's role set.
+  const [managingCategory, setManagingCategory] = useState(false);
+  const [categoryNameDraft, setCategoryNameDraft] = useState("");
+  const [categoryVisibilityDraft, setCategoryVisibilityDraft] = useState<"workspace" | "private">("workspace");
+  const [savingCategory, setSavingCategory] = useState(false);
+  const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
+  const [categoryMembers, setCategoryMembers] = useState<CategoryMember[]>([]);
+
+  // Column management — Phase 2's board.manage-gated CRUD, surfaced
+  // directly on the board for OWNER/ADMIN/PROJECT_MANAGER.
   const [addingColumn, setAddingColumn] = useState(false);
   const [newColumnName, setNewColumnName] = useState("");
   const [newColumnCategory, setNewColumnCategory] = useState<"todo" | "in_progress" | "done">("todo");
@@ -132,10 +172,10 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
   const [editingColumnCategory, setEditingColumnCategory] = useState<"todo" | "in_progress" | "done">("todo");
 
   // Phase 7 search/filter: filtered client-side against the board already
-  // fetched in full for this project (simpler and equally correct for a
-  // single-project board — see docs/PHASES.md Phase 7 notes). This never
+  // fetched in full for this category (simpler and equally correct for a
+  // single-category board — see docs/PHASES.md Phase 7 notes). This never
   // calls the server with a different scope; it only narrows what's
-  // rendered from `tasks`, which itself only ever contains this project's
+  // rendered from `tasks`, which itself only ever contains this category's
   // tasks.
   const [searchQuery, setSearchQuery] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("");
@@ -150,8 +190,10 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     setTimeout(() => setToast(null), 4000);
   }
 
+  const base = `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}`;
+
   async function load() {
-    if (!workspaceId || !projectId) return;
+    if (!workspaceId || !projectId || !categoryId) return;
     try {
       const ws = await api.get<{ workspace: { name: string }; role: string }>(
         `/api/workspaces/${workspaceId}`,
@@ -163,18 +205,22 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
       );
       setProjectName(projectRes.project.name);
 
-      const columnsRes = await api.get<{ columns: BoardColumn[] }>(
-        `/api/workspaces/${workspaceId}/projects/${projectId}/columns`,
-      );
+      const categoryRes = await api.get<{
+        category: { name: string; visibility: "workspace" | "private" };
+      }>(base);
+      setCategoryName(categoryRes.category.name);
+      setCategoryVisibility(categoryRes.category.visibility);
+      setCategoryVisibilityDraft(categoryRes.category.visibility);
+      setCategoryNameDraft(categoryRes.category.name);
+
+      const columnsRes = await api.get<{ columns: BoardColumn[] }>(`${base}/columns`);
       setColumns(columnsRes.columns.sort((a, b) => a.position - b.position));
 
-      const tasksRes = await api.get<{ tasks: Task[] }>(
-        `/api/workspaces/${workspaceId}/projects/${projectId}/tasks`,
-      );
+      const tasksRes = await api.get<{ tasks: Task[] }>(`${base}/tasks`);
       setTasks(tasksRes.tasks);
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
-        navigate(`/workspace/${workspaceId}/projects`);
+        navigate(`/workspace/${workspaceId}/projects/${projectId}/categories`);
         return;
       }
       showToast("Could not load this board. Please try again.", true);
@@ -184,17 +230,22 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
   useEffect(() => {
     load().catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId, projectId]);
+  }, [workspaceId, projectId, categoryId]);
 
-  // Real-time collaboration: join this board's workspace/project rooms and
-  // live-apply task/board events pushed by other users' REST mutations.
-  // Socket.IO here is push-only — nothing in this effect ever writes state
-  // back to the server, it only reflects what the server already persisted.
+  // Real-time collaboration: join this board's workspace/project/category
+  // rooms and live-apply task/board events pushed by other users' REST
+  // mutations. Task/column mutation events are emitted ONLY to the
+  // category's room (see apps/api/src/realtime/realtime.ts#emitToCategory),
+  // so joining the category room specifically (not just the project's) is
+  // required to receive them. Socket.IO here is push-only — nothing in this
+  // effect ever writes state back to the server, it only reflects what the
+  // server already persisted.
   useEffect(() => {
-    if (!workspaceId || !projectId) return;
+    if (!workspaceId || !projectId || !categoryId) return;
     const socket = getSocket();
     joinWorkspaceRoom(workspaceId);
     joinProjectRoom(projectId);
+    joinCategoryRoom(categoryId);
 
     const onTaskCreated = (task: Task) => {
       setTasks((prev) => (prev.some((t) => t.id === task.id) ? prev : [...prev, task]));
@@ -224,9 +275,10 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
       socket.off("task.deleted", onTaskDeleted);
       socket.off("board.column.changed", onBoardColumnChanged);
       leaveProjectRoom(projectId);
+      leaveCategoryRoom(categoryId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId, projectId]);
+  }, [workspaceId, projectId, categoryId]);
 
   const assigneeOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -286,6 +338,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
   const canEditTasks = role !== null && CAN_EDIT_TASK_ROLES.has(role);
   const canCreateTasks = role !== null && CAN_CREATE_TASK_ROLES.has(role);
   const canManageBoard = role !== null && CAN_MANAGE_BOARD_ROLES.has(role);
+  const canManageCategory = role !== null && CAN_MANAGE_CATEGORY_ROLES.has(role);
 
   /**
    * Resolves whatever `over.id` dnd-kit's collision detection landed on to
@@ -317,10 +370,9 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     setColumns(reordered);
 
     try {
-      const res = await api.post<{ columns: BoardColumn[] }>(
-        `/api/workspaces/${workspaceId}/projects/${projectId}/columns/reorder`,
-        { columnIds: reordered.map((c) => c.id) },
-      );
+      const res = await api.post<{ columns: BoardColumn[] }>(`${base}/columns/reorder`, {
+        columnIds: reordered.map((c) => c.id),
+      });
       setColumns(res.columns.sort((a, b) => a.position - b.position));
     } catch (err) {
       setColumns(previousColumns);
@@ -381,15 +433,12 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     );
 
     try {
-      const res = await api.post<{ task: Task }>(
-        `/api/workspaces/${workspaceId}/projects/${projectId}/tasks/${activeId}/move`,
-        {
-          version: activeTask.version,
-          columnId: targetColumnId,
-          beforeTaskId: beforeTask?.id ?? null,
-          afterTaskId: afterTask?.id ?? null,
-        },
-      );
+      const res = await api.post<{ task: Task }>(`${base}/tasks/${activeId}/move`, {
+        version: activeTask.version,
+        columnId: targetColumnId,
+        beforeTaskId: beforeTask?.id ?? null,
+        afterTaskId: afterTask?.id ?? null,
+      });
       setTasks((prev) => prev.map((t) => (t.id === activeId ? res.task : t)));
     } catch (err) {
       setTasks(previousTasks);
@@ -415,17 +464,14 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     const title = input.title.trim();
     if (!title) return null;
     try {
-      const res = await api.post<{ task: Task }>(
-        `/api/workspaces/${workspaceId}/projects/${projectId}/tasks`,
-        {
-          title,
-          columnId,
-          ...(input.description ? { description: input.description } : {}),
-          ...(input.priority ? { priority: input.priority } : {}),
-          ...(input.startDate ? { startDate: input.startDate } : {}),
-          ...(input.dueDate ? { dueDate: input.dueDate } : {}),
-        },
-      );
+      const res = await api.post<{ task: Task }>(`${base}/tasks`, {
+        title,
+        columnId,
+        ...(input.description ? { description: input.description } : {}),
+        ...(input.priority ? { priority: input.priority } : {}),
+        ...(input.startDate ? { startDate: input.startDate } : {}),
+        ...(input.dueDate ? { dueDate: input.dueDate } : {}),
+      });
       // Idempotent: the server's own "task.created" broadcast (see
       // onTaskCreated above) is racing this REST response over a separate
       // connection and may already have appended this exact task by id —
@@ -448,10 +494,10 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     const name = newColumnName.trim();
     if (!name) return;
     try {
-      const res = await api.post<{ column: BoardColumn }>(
-        `/api/workspaces/${workspaceId}/projects/${projectId}/columns`,
-        { name, category: newColumnCategory },
-      );
+      const res = await api.post<{ column: BoardColumn }>(`${base}/columns`, {
+        name,
+        category: newColumnCategory,
+      });
       // Same idempotent-append guard as handleCreateTask: the "board.column.changed"
       // socket broadcast (handled by onBoardColumnChanged -> load(), a full
       // refetch/replace) may resolve before this REST response does, so an
@@ -486,10 +532,10 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     const name = editingColumnName.trim();
     if (!name) return;
     try {
-      const res = await api.patch<{ column: BoardColumn }>(
-        `/api/workspaces/${workspaceId}/projects/${projectId}/columns/${columnId}`,
-        { name, category: editingColumnCategory },
-      );
+      const res = await api.patch<{ column: BoardColumn }>(`${base}/columns/${columnId}`, {
+        name,
+        category: editingColumnCategory,
+      });
       setColumns((prev) =>
         (prev ?? []).map((c) => (c.id === res.column.id ? res.column : c)).sort((a, b) => a.position - b.position),
       );
@@ -503,7 +549,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     if (!canManageBoard || !workspaceId || !projectId) return;
     if (!confirm("Delete this column? This cannot be undone.")) return;
     try {
-      await api.delete(`/api/workspaces/${workspaceId}/projects/${projectId}/columns/${columnId}`);
+      await api.delete(`${base}/columns/${columnId}`);
       setColumns((prev) => (prev ?? []).filter((c) => c.id !== columnId));
     } catch (err) {
       // The server enforces Restrict (409) when the column still has tasks —
@@ -524,6 +570,91 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     setSelectedTaskId(null);
   }
 
+  // ---------------------------------------------------------------------
+  // Category management (rename/visibility/members/delete)
+  // ---------------------------------------------------------------------
+
+  async function openCategoryManager() {
+    setManagingCategory(true);
+    if (!workspaceId) return;
+    try {
+      const membersRes = await api.get<{ members: WorkspaceMember[] }>(
+        `/api/workspaces/${workspaceId}/members`,
+      );
+      setWorkspaceMembers(membersRes.members);
+      if (categoryVisibility === "private") {
+        const categoryMembersRes = await api.get<{ members: CategoryMember[] }>(`${base}/members`);
+        setCategoryMembers(categoryMembersRes.members);
+      }
+    } catch {
+      // Non-critical for board function; the manager panel just shows what
+      // it could load.
+    }
+  }
+
+  async function handleSaveCategory() {
+    if (!canManageCategory) return;
+    const name = categoryNameDraft.trim();
+    if (!name) return;
+    setSavingCategory(true);
+    try {
+      const res = await api.patch<{ category: { name: string; visibility: "workspace" | "private" } }>(base, {
+        name,
+        visibility: categoryVisibilityDraft,
+      });
+      setCategoryName(res.category.name);
+      setCategoryVisibility(res.category.visibility);
+      if (res.category.visibility === "private") {
+        const categoryMembersRes = await api.get<{ members: CategoryMember[] }>(`${base}/members`);
+        setCategoryMembers(categoryMembersRes.members);
+      }
+      showToast("Category updated.");
+    } catch (err) {
+      showToast(err instanceof ApiError ? err.message : "Could not update this category.", true);
+    } finally {
+      setSavingCategory(false);
+    }
+  }
+
+  async function handleAddCategoryMember(userId: string) {
+    if (!userId) return;
+    try {
+      await api.post(`${base}/members`, { userId });
+      const categoryMembersRes = await api.get<{ members: CategoryMember[] }>(`${base}/members`);
+      setCategoryMembers(categoryMembersRes.members);
+    } catch (err) {
+      showToast(err instanceof ApiError ? err.message : "Could not add this member.", true);
+    }
+  }
+
+  async function handleRemoveCategoryMember(userId: string) {
+    try {
+      await api.delete(`${base}/members/${userId}`);
+      setCategoryMembers((prev) => prev.filter((m) => m.userId !== userId));
+    } catch (err) {
+      showToast(err instanceof ApiError ? err.message : "Could not remove this member.", true);
+    }
+  }
+
+  async function handleDeleteCategory() {
+    if (!canManageCategory || !workspaceId || !projectId) return;
+    if (!confirm(`Delete the "${categoryName}" category? This cannot be undone.`)) return;
+    try {
+      await api.delete(base);
+      navigate(`/workspace/${workspaceId}/projects/${projectId}/categories`);
+    } catch (err) {
+      // Surfaces the backend's exact invariant message — e.g. "Every
+      // project must have at least one category..." (last-category rule)
+      // or "This category still has tasks in it..." (non-empty rule) —
+      // via the same toast convention used for the column-delete-blocked
+      // error above.
+      showToast(
+        err instanceof ApiError ? err.message : "Could not delete this category. Please try again.",
+        true,
+      );
+    }
+  }
+
   return (
     <div className="ph-shell ph-shell-wide">
       <div className="ph-topbar ph-topbar-wide">
@@ -538,14 +669,122 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
       <div className="ph-page-wide">
         <div className="ph-breadcrumb">
           <Link to="/">Your workspaces</Link> /{" "}
-          <Link to={`/workspace/${workspaceId}/projects`}>Projects</Link> / {projectName || "..."}
+          <Link to={`/workspace/${workspaceId}/projects`}>Projects</Link> /{" "}
+          <Link to={`/workspace/${workspaceId}/projects/${projectId}/categories`}>
+            {projectName || "..."}
+          </Link>{" "}
+          / {categoryName || "..."}
         </div>
 
         <div className="ph-page-header">
           <div>
-            <h1>{projectName || "Board"}</h1>
+            <h1>
+              {categoryName || "Board"}
+              {categoryVisibility === "private" && (
+                <span className="ph-badge ph-badge-private" style={{ marginLeft: "0.6rem" }}>
+                  Private
+                </span>
+              )}
+            </h1>
+            <p className="ph-subtitle" style={{ margin: 0 }}>
+              {projectName}
+            </p>
           </div>
+          {canManageCategory && (
+            <button
+              type="button"
+              className="ph-button ph-button-secondary"
+              style={{ width: "auto" }}
+              onClick={() => (managingCategory ? setManagingCategory(false) : openCategoryManager())}
+            >
+              {managingCategory ? "Close category settings" : "Category settings"}
+            </button>
+          )}
         </div>
+
+        {managingCategory && canManageCategory && (
+          <div className="ph-card ph-card-wide" style={{ marginBottom: "1.25rem" }}>
+            <h1 style={{ fontSize: "1rem" }}>Category settings</h1>
+            <div className="ph-field">
+              <label htmlFor="categoryName">Name</label>
+              <input
+                id="categoryName"
+                value={categoryNameDraft}
+                onChange={(e) => setCategoryNameDraft(e.target.value)}
+              />
+            </div>
+            <div className="ph-field">
+              <label htmlFor="categoryVisibility">Visibility</label>
+              <select
+                id="categoryVisibility"
+                value={categoryVisibilityDraft}
+                onChange={(e) => {
+                  const next = e.target.value as "workspace" | "private";
+                  setCategoryVisibilityDraft(next);
+                  if (next === "private" && categoryMembers.length === 0) {
+                    api
+                      .get<{ members: CategoryMember[] }>(`${base}/members`)
+                      .then((res) => setCategoryMembers(res.members))
+                      .catch(() => undefined);
+                  }
+                }}
+              >
+                <option value="workspace">Workspace — visible to every project member</option>
+                <option value="private">Private — only category members and managers</option>
+              </select>
+            </div>
+            <div style={{ display: "flex", gap: "0.6rem", marginBottom: "1rem" }}>
+              <button
+                type="button"
+                className="ph-button"
+                style={{ width: "auto" }}
+                disabled={savingCategory || !categoryNameDraft.trim()}
+                onClick={handleSaveCategory}
+              >
+                {savingCategory ? "Saving..." : "Save"}
+              </button>
+              <button
+                type="button"
+                className="ph-button ph-button-secondary"
+                style={{ width: "auto", borderColor: "var(--ph-error)", color: "var(--ph-error)" }}
+                onClick={handleDeleteCategory}
+              >
+                Delete category
+              </button>
+            </div>
+
+            {categoryVisibilityDraft === "private" && (
+              <div>
+                <h2 style={{ fontSize: "0.9rem" }}>Category members</h2>
+                <ul className="ph-assignee-list">
+                  {categoryMembers.length === 0 && <li style={{ border: "none" }}>No explicit members yet.</li>}
+                  {categoryMembers.map((m) => (
+                    <li key={m.userId}>
+                      <span>{m.displayName}</span>
+                      <button className="ph-remove-btn" onClick={() => handleRemoveCategoryMember(m.userId)}>
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <select
+                  value=""
+                  onChange={(e) => e.target.value && handleAddCategoryMember(e.target.value)}
+                  style={{ marginTop: "0.5rem" }}
+                >
+                  <option value="">Add a workspace member...</option>
+                  {workspaceMembers
+                    .filter((m) => !categoryMembers.some((cm) => cm.userId === m.userId))
+                    .map((m) => (
+                      <option key={m.userId} value={m.userId}>
+                        {m.displayName}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="ph-subnav">
           <button
@@ -847,10 +1086,11 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
         />
       )}
 
-      {selectedTaskId && workspaceId && projectId && (
+      {selectedTaskId && workspaceId && projectId && categoryId && (
         <TaskDetailModal
           workspaceId={workspaceId}
           projectId={projectId}
+          categoryId={categoryId}
           taskId={selectedTaskId}
           role={role}
           currentUserId={user.id}

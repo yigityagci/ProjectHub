@@ -8,6 +8,7 @@ import {
   disconnectAll,
   registerAndLogin,
   createWorkspaceAs,
+  createCategoryAs,
   inviteAndAccept,
   getMemberUserId,
   listenEphemeral,
@@ -30,6 +31,7 @@ describe("Real-time room eviction on membership removal/demotion", () => {
   let member: TestClient;
   let workspaceId: string;
   let projectId: string;
+  let categoryId: string;
   let baseUrl: string;
 
   beforeAll(async () => {
@@ -44,6 +46,8 @@ describe("Real-time room eviction on membership removal/demotion", () => {
       name: "Realtime Project",
     });
     projectId = projectRes.json().project.id;
+    const category = await createCategoryAs(owner, workspaceId, projectId, "Default");
+    categoryId = category.id;
 
     member = await inviteAndAccept(app, owner, workspaceId, "rt-member@example.com", "MEMBER");
 
@@ -69,7 +73,11 @@ describe("Real-time room eviction on membership removal/demotion", () => {
     });
   }
 
-  function joinRoom(socket: ClientSocket, event: "join:workspace" | "join:project", payload: Record<string, string>) {
+  function joinRoom(
+    socket: ClientSocket,
+    event: "join:workspace" | "join:project" | "join:category",
+    payload: Record<string, string>,
+  ) {
     return new Promise<boolean>((resolve) => {
       socket.emit(event, payload, (ok: boolean) => resolve(ok));
     });
@@ -97,13 +105,17 @@ describe("Real-time room eviction on membership removal/demotion", () => {
       expect(joinedWorkspace).toBe(true);
       const joinedProject = await joinRoom(memberSocket, "join:project", { projectId });
       expect(joinedProject).toBe(true);
+      const joinedCategory = await joinRoom(memberSocket, "join:category", { categoryId });
+      expect(joinedCategory).toBe(true);
 
       // Sanity check: before removal, a REST mutation's broadcast reaches
-      // the member's socket.
+      // the member's socket (task.created is emitted to the category's
+      // room — see realtime.ts#emitToCategory).
       const firstTaskEvent = waitForEvent<{ title: string }>(memberSocket, "task.created");
-      const createRes = await owner.post(`/api/workspaces/${workspaceId}/projects/${projectId}/tasks`, {
-        title: "Task before removal",
-      });
+      const createRes = await owner.post(
+        `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks`,
+        { title: "Task before removal" },
+      );
       expect(createRes.statusCode).toBe(201);
       const received = await firstTaskEvent;
       expect(received?.title).toBe("Task before removal");
@@ -114,11 +126,13 @@ describe("Real-time room eviction on membership removal/demotion", () => {
       expect(removeRes.statusCode).toBe(200);
 
       // A subsequent REST mutation's broadcast must NOT reach the removed
-      // member's still-open socket.
+      // member's still-open socket (neither the project room nor the
+      // category room).
       const secondTaskEvent = waitForEvent<{ title: string }>(memberSocket, "task.created");
-      const createRes2 = await owner.post(`/api/workspaces/${workspaceId}/projects/${projectId}/tasks`, {
-        title: "Task after removal",
-      });
+      const createRes2 = await owner.post(
+        `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks`,
+        { title: "Task after removal" },
+      );
       expect(createRes2.statusCode).toBe(201);
       const receivedAfterRemoval = await secondTaskEvent;
       expect(receivedAfterRemoval).toBeNull();
@@ -136,11 +150,15 @@ describe("Real-time room eviction on membership removal/demotion", () => {
       visibility: "private",
     });
     const privateProjectId = privateProjectRes.json().project.id;
+    const privateProjectCategory = await createCategoryAs(owner, workspaceId, privateProjectId, "Default");
+    const privateProjectCategoryId = privateProjectCategory.id;
 
     const socket = await connectAs(demotable);
     try {
       const joinedProject = await joinRoom(socket, "join:project", { projectId: privateProjectId });
       expect(joinedProject).toBe(true);
+      const joinedCategory = await joinRoom(socket, "join:category", { categoryId: privateProjectCategoryId });
+      expect(joinedCategory).toBe(true);
 
       const demotedUserId = await getMemberUserId(owner, workspaceId, "rt-demote@example.com");
       const demoteRes = await owner.patch(`/api/workspaces/${workspaceId}/members/${demotedUserId}/role`, {
@@ -150,12 +168,62 @@ describe("Real-time room eviction on membership removal/demotion", () => {
 
       const taskEvent = waitForEvent<{ title: string }>(socket, "task.created");
       const createRes = await owner.post(
-        `/api/workspaces/${workspaceId}/projects/${privateProjectId}/tasks`,
+        `/api/workspaces/${workspaceId}/projects/${privateProjectId}/categories/${privateProjectCategoryId}/tasks`,
         { title: "Task after demotion" },
       );
       expect(createRes.statusCode).toBe(201);
       const received = await taskEvent;
       expect(received).toBeNull();
+    } finally {
+      socket.disconnect();
+    }
+  });
+
+  it("a socket that can't access a private category never receives that category's task/column events, even while still in the parent project's room", async () => {
+    const privateCategory = await createCategoryAs(owner, workspaceId, projectId, "Private Room Category", {
+      visibility: "private",
+    });
+    const privateCategoryId = privateCategory.id;
+
+    const categoryMember = await inviteAndAccept(app, owner, workspaceId, "rt-category-member@example.com", "MEMBER");
+    const categoryMemberUserId = await getMemberUserId(owner, workspaceId, "rt-category-member@example.com");
+    const addRes = await owner.post(
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${privateCategoryId}/members`,
+      { userId: categoryMemberUserId },
+    );
+    expect(addRes.statusCode).toBe(201);
+
+    const socket = await connectAs(categoryMember);
+    try {
+      const joinedProject = await joinRoom(socket, "join:project", { projectId });
+      expect(joinedProject).toBe(true);
+      const joinedCategory = await joinRoom(socket, "join:category", { categoryId: privateCategoryId });
+      expect(joinedCategory).toBe(true);
+
+      // Sanity check: while still a category member, the event reaches them.
+      const firstEvent = waitForEvent<{ title: string }>(socket, "task.created");
+      const createRes = await owner.post(
+        `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${privateCategoryId}/tasks`,
+        { title: "Visible while a member" },
+      );
+      expect(createRes.statusCode).toBe(201);
+      expect((await firstEvent)?.title).toBe("Visible while a member");
+
+      // Remove their CategoryMembership — they remain a member of the
+      // parent project/workspace (still in the project's room), but must
+      // be evicted from the category's room and stop receiving its events.
+      const removeRes = await owner.delete(
+        `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${privateCategoryId}/members/${categoryMemberUserId}`,
+      );
+      expect(removeRes.statusCode).toBe(200);
+
+      const secondEvent = waitForEvent<{ title: string }>(socket, "task.created");
+      const createRes2 = await owner.post(
+        `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${privateCategoryId}/tasks`,
+        { title: "Invisible after removal" },
+      );
+      expect(createRes2.statusCode).toBe(201);
+      expect(await secondEvent).toBeNull();
     } finally {
       socket.disconnect();
     }

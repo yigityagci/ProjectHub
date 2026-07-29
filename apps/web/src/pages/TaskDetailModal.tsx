@@ -55,6 +55,7 @@ function formatDateTime(value: string): string {
 export default function TaskDetailModal({
   workspaceId,
   projectId,
+  categoryId,
   taskId,
   role,
   currentUserId,
@@ -65,6 +66,7 @@ export default function TaskDetailModal({
 }: {
   workspaceId: string;
   projectId: string;
+  categoryId: string;
   taskId: string;
   role: string | null;
   currentUserId: string;
@@ -102,7 +104,10 @@ export default function TaskDetailModal({
   const canComment = role !== null && CAN_COMMENT_ROLES.has(role);
   const isElevated = role !== null && ELEVATED_ROLES.has(role);
 
-  const base = `/api/workspaces/${workspaceId}/projects/${projectId}`;
+  const projectBase = `/api/workspaces/${workspaceId}/projects/${projectId}`;
+  // Labels remain project-scoped (deliberately separate from Categories —
+  // see docs/PHASES.md); every task sub-resource below is category-scoped.
+  const base = `${projectBase}/categories/${categoryId}`;
 
   function applyTask(t: Task) {
     setTask(t);
@@ -118,7 +123,7 @@ export default function TaskDetailModal({
       const [taskRes, membersRes, labelsRes, depsRes, commentsRes, attachmentsRes] = await Promise.all([
         api.get<{ task: Task }>(`${base}/tasks/${taskId}`),
         api.get<{ members: WorkspaceMember[] }>(`/api/workspaces/${workspaceId}/members`),
-        api.get<{ labels: Label[] }>(`${base}/labels`),
+        api.get<{ labels: Label[] }>(`${projectBase}/labels`),
         api.get<{ dependencies: Dependency[] }>(`${base}/tasks/${taskId}/dependencies`),
         api.get<{ comments: Comment[] }>(`${base}/tasks/${taskId}/comments`),
         api.get<{ attachments: Attachment[] }>(`${base}/tasks/${taskId}/attachments`),

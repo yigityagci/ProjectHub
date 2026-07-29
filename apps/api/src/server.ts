@@ -19,6 +19,7 @@ import { registerWorkspaceRoutes } from "./workspaces/workspaces.routes.js";
 import { registerMemberRoutes } from "./workspaces/members.routes.js";
 import { registerInvitationRoutes } from "./workspaces/invitations.routes.js";
 import { registerProjectRoutes } from "./projects/projects.routes.js";
+import { registerCategoryRoutes } from "./projects/categories.routes.js";
 import { registerColumnRoutes } from "./projects/columns.routes.js";
 import { registerTaskRoutes } from "./projects/tasks.routes.js";
 import { registerLabelRoutes } from "./projects/labels.routes.js";
@@ -121,6 +122,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await registerMemberRoutes(app);
   await registerInvitationRoutes(app);
   await registerProjectRoutes(app);
+  await registerCategoryRoutes(app);
   await registerColumnRoutes(app);
   await registerTaskRoutes(app);
   await registerLabelRoutes(app);

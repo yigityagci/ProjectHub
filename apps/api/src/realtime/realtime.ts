@@ -5,13 +5,16 @@ import { Redis } from "ioredis";
 import { env } from "../config/env.js";
 import { logger } from "../core/logger.js";
 import { SESSION_COOKIE_NAME, resolveSession } from "../auth/session.js";
-import { hasWorkspaceAccess, hasProjectAccess } from "./access.js";
+import { hasWorkspaceAccess, hasProjectAccess, hasCategoryAccess } from "./access.js";
 
 export function workspaceRoom(workspaceId: string): string {
   return `workspace:${workspaceId}`;
 }
 export function projectRoom(projectId: string): string {
   return `project:${projectId}`;
+}
+export function categoryRoom(categoryId: string): string {
+  return `category:${categoryId}`;
 }
 export function userRoom(userId: string): string {
   return `user:${userId}`;
@@ -117,12 +120,26 @@ export function initRealtime(app: FastifyInstance): Server {
       ack?.(true);
     });
 
+    socket.on("join:category", async (payload: { categoryId?: string }, ack?: (ok: boolean) => void) => {
+      const categoryId = payload?.categoryId;
+      if (!categoryId || !(await hasCategoryAccess(userId, categoryId))) {
+        ack?.(false);
+        return;
+      }
+      await socket.join(categoryRoom(categoryId));
+      ack?.(true);
+    });
+
     socket.on("leave:workspace", (payload: { workspaceId?: string }) => {
       if (payload?.workspaceId) socket.leave(workspaceRoom(payload.workspaceId));
     });
 
     socket.on("leave:project", (payload: { projectId?: string }) => {
       if (payload?.projectId) socket.leave(projectRoom(payload.projectId));
+    });
+
+    socket.on("leave:category", (payload: { categoryId?: string }) => {
+      if (payload?.categoryId) socket.leave(categoryRoom(payload.categoryId));
     });
   });
 
@@ -166,6 +183,11 @@ export async function revalidateRoomsForUser(userId: string): Promise<void> {
         if (!(await hasProjectAccess(userId, projectId))) {
           await socket.leave(room);
         }
+      } else if (room.startsWith("category:")) {
+        const categoryId = room.slice("category:".length);
+        if (!(await hasCategoryAccess(userId, categoryId))) {
+          await socket.leave(room);
+        }
       }
     }
   }
@@ -177,6 +199,7 @@ export type BroadcastEvent =
   | "task.moved"
   | "task.deleted"
   | "project.member.changed"
+  | "category.member.changed"
   | "board.column.changed"
   | "comment.created"
   | "comment.deleted"
@@ -188,6 +211,20 @@ export type BroadcastEvent =
 /** Broadcasts to every socket in a project's room. Never called before persistence. */
 export function emitToProject(projectId: string, event: BroadcastEvent, payload: unknown): void {
   io?.to(projectRoom(projectId)).emit(event, payload);
+}
+
+/**
+ * Broadcasts to every socket in a category's room. Task/column mutation
+ * events (task.created/task.updated/task.moved/task.deleted/
+ * board.column.changed) are emitted HERE ONLY (not also to the parent
+ * project's room): a user who can see a project overall but not one of its
+ * specific private categories must never receive that category's live
+ * task/column events. Clients that need project-level board updates join
+ * this room directly (per-category), the same way they already join a
+ * project's room for project-level events.
+ */
+export function emitToCategory(categoryId: string, event: BroadcastEvent, payload: unknown): void {
+  io?.to(categoryRoom(categoryId)).emit(event, payload);
 }
 
 /** Broadcasts to every socket in a workspace's room. Never called before persistence. */

@@ -122,7 +122,7 @@ export default function AnalyticsPage({ user }: { user: CurrentUser }) {
         <div className="ph-breadcrumb">
           <Link to="/">Your workspaces</Link> /{" "}
           <Link to={`/workspace/${workspaceId}/projects`}>Projects</Link> /{" "}
-          <Link to={`/workspace/${workspaceId}/projects/${projectId}/board`}>{projectName || "..."}</Link> /
+          <Link to={`/workspace/${workspaceId}/projects/${projectId}/categories`}>{projectName || "..."}</Link> /
           Analytics
         </div>
 

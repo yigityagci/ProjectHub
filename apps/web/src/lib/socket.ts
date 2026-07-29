@@ -35,6 +35,19 @@ export function leaveProjectRoom(projectId: string): void {
   getSocket().emit("leave:project", { projectId });
 }
 
+// Category rooms carry every task/column mutation event scoped to that
+// category ONLY (see apps/api/src/realtime/realtime.ts#emitToCategory) — a
+// user who can see the parent project overall but not a specific (possibly
+// private) category never receives its live events unless they've also
+// joined this room.
+export function joinCategoryRoom(categoryId: string): void {
+  getSocket().emit("join:category", { categoryId });
+}
+
+export function leaveCategoryRoom(categoryId: string): void {
+  getSocket().emit("leave:category", { categoryId });
+}
+
 export function disconnectSocket(): void {
   socket?.disconnect();
   socket = null;

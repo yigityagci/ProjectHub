@@ -13,6 +13,7 @@ export interface TaskLabelRef {
 export interface Task {
   id: string;
   projectId: string;
+  categoryId: string;
   columnId: string;
   parentTaskId: string | null;
   milestoneId: string | null;

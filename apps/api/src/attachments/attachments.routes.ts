@@ -6,6 +6,7 @@ import {
   requireCsrf,
   requireMembership,
   requireProjectAccess,
+  requireCategoryAccess,
   requirePermission,
 } from "../rbac/guards.js";
 import {
@@ -15,15 +16,19 @@ import {
   deleteAttachment,
 } from "./attachments.service.js";
 
-const TASK_SCOPED_PREFIX = "/api/workspaces/:workspaceId/projects/:projectId/tasks/:taskId";
+// Attachments are a task sub-resource, restructured identically to
+// comments.routes.ts / tasks.routes.ts — see tasks.routes.ts's doc comment
+// for the category-isolation rationale.
+const TASK_SCOPED_PREFIX =
+  "/api/workspaces/:workspaceId/projects/:projectId/categories/:categoryId/tasks/:taskId";
 
 export async function registerAttachmentRoutes(app: FastifyInstance): Promise<void> {
   app.get(
     `${TASK_SCOPED_PREFIX}/attachments`,
-    { preHandler: [requireAuth, requireMembership, requireProjectAccess] },
+    { preHandler: [requireAuth, requireMembership, requireProjectAccess, requireCategoryAccess] },
     async (req, reply) => {
       const { taskId } = req.params as { taskId: string };
-      const attachments = await listAttachments(req.ctx.workspace!.id, req.ctx.project!.id, taskId);
+      const attachments = await listAttachments(req.ctx.workspace!.id, req.ctx.category!.id, taskId);
       return reply.send({ attachments });
     },
   );
@@ -38,6 +43,7 @@ export async function registerAttachmentRoutes(app: FastifyInstance): Promise<vo
         requireCsrf,
         requireMembership,
         requireProjectAccess,
+        requireCategoryAccess,
         requirePermission("task.edit"),
       ],
     },
@@ -50,7 +56,7 @@ export async function registerAttachmentRoutes(app: FastifyInstance): Promise<vo
       const data = await file.toBuffer();
       const attachment = await createAttachment({
         workspaceId: req.ctx.workspace!.id,
-        projectId: req.ctx.project!.id,
+        categoryId: req.ctx.category!.id,
         taskId,
         uploaderId: req.ctx.user!.id,
         filename: file.filename,
@@ -63,12 +69,12 @@ export async function registerAttachmentRoutes(app: FastifyInstance): Promise<vo
 
   app.get(
     `${TASK_SCOPED_PREFIX}/attachments/:attachmentId/download`,
-    { preHandler: [requireAuth, requireMembership, requireProjectAccess] },
+    { preHandler: [requireAuth, requireMembership, requireProjectAccess, requireCategoryAccess] },
     async (req, reply) => {
       const { taskId, attachmentId } = req.params as { taskId: string; attachmentId: string };
       const { attachment, data } = await getAttachmentForDownload(
         req.ctx.workspace!.id,
-        req.ctx.project!.id,
+        req.ctx.category!.id,
         taskId,
         attachmentId,
       );
@@ -78,8 +84,8 @@ export async function registerAttachmentRoutes(app: FastifyInstance): Promise<vo
         `attachment; filename="${attachment.filename.replace(/["\r\n]/g, "_")}"`,
       );
       // Never cached/served as a static, publicly-linkable asset — every
-      // download re-runs the full auth + membership + project-access chain
-      // above on each request.
+      // download re-runs the full auth + membership + project-access +
+      // category-access chain above on each request.
       reply.header("Cache-Control", "private, no-store");
       return reply.send(data);
     },
@@ -87,7 +93,9 @@ export async function registerAttachmentRoutes(app: FastifyInstance): Promise<vo
 
   app.delete(
     `${TASK_SCOPED_PREFIX}/attachments/:attachmentId`,
-    { preHandler: [requireAuth, requireCsrf, requireMembership, requireProjectAccess] },
+    {
+      preHandler: [requireAuth, requireCsrf, requireMembership, requireProjectAccess, requireCategoryAccess],
+    },
     async (req, reply) => {
       const { taskId, attachmentId } = req.params as { taskId: string; attachmentId: string };
       if (!attachmentId) {
@@ -96,7 +104,7 @@ export async function registerAttachmentRoutes(app: FastifyInstance): Promise<vo
       const roleKey = req.ctx.membership!.role.key as RoleKey;
       await deleteAttachment(
         req.ctx.workspace!.id,
-        req.ctx.project!.id,
+        req.ctx.category!.id,
         taskId,
         attachmentId,
         req.ctx.user!.id,

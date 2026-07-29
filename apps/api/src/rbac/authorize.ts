@@ -56,3 +56,23 @@ export async function assertNotLastOwner(
     throw new ConflictError(mode === "demote" ? LAST_OWNER_MESSAGE : LAST_OWNER_REMOVAL_MESSAGE);
   }
 }
+
+const LAST_CATEGORY_MESSAGE =
+  "Every project must have at least one category. Create another category before deleting this one.";
+
+/**
+ * Prevents deleting the last remaining TaskCategory of a project, mirroring
+ * assertNotLastOwner's style/race-avoidance requirement above: a project
+ * that already has >= 1 category can never be reduced to 0 via deletion
+ * (this is distinct from a brand-new project's transient zero-category
+ * state between project-creation and its forced first-category-creation
+ * step — see docs/PHASES.md). Must be called from within the same
+ * request/transaction as the delete to avoid a race between the check and
+ * the write.
+ */
+export async function assertNotLastCategory(projectId: string): Promise<void> {
+  const categoryCount = await prisma.taskCategory.count({ where: { projectId } });
+  if (categoryCount <= 1) {
+    throw new ConflictError(LAST_CATEGORY_MESSAGE);
+  }
+}

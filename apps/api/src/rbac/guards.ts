@@ -6,6 +6,7 @@ import { getRawSessionToken, resolveSession, CSRF_COOKIE_NAME } from "../auth/se
 import { toAuthenticatedUser } from "./context.js";
 
 const PROJECT_NOT_FOUND_MESSAGE = "This project doesn't exist or you don't have access to it.";
+const CATEGORY_NOT_FOUND_MESSAGE = "This category doesn't exist or you don't have access to it.";
 
 /**
  * Requires a valid, non-expired, non-revoked session. Populates
@@ -147,4 +148,66 @@ export async function requireProjectAccess(req: FastifyRequest, _reply: FastifyR
 
   req.ctx.project = project;
   req.ctx.projectMembership = projectMembership;
+}
+
+/**
+ * Layer 3 of the access model (must run after requireProjectAccess, before
+ * any requirePermission(...) check for a category-scoped route). Loads the
+ * `:categoryId` route param scoped to the already-verified
+ * `req.ctx.project`, and enforces category-level visibility rules —
+ * mirrors requireProjectAccess's exact shape, one level down. Every denial
+ * path returns 404 (never 403), same non-leaking rationale as
+ * requireProjectAccess:
+ *
+ *  - CLIENT role: always requires an explicit CategoryMembership row,
+ *    regardless of the category's visibility — this mirrors CLIENT's
+ *    existing "always requires ProjectMembership" rule for projects one
+ *    level up, applied consistently one level down for categories.
+ *  - visibility "private": must have a CategoryMembership row, OR hold a
+ *    role ranked >= PROJECT_MANAGER (same threshold requireProjectAccess
+ *    uses for private-project visibility).
+ *  - visibility "workspace": any caller who already passed
+ *    requireProjectAccess for this project has access.
+ *
+ * Sets req.ctx.category and req.ctx.categoryMembership (null if none). Live
+ * DB check every request, never cached — matches every other guard here.
+ */
+export async function requireCategoryAccess(req: FastifyRequest, _reply: FastifyReply): Promise<void> {
+  if (!req.ctx?.user || !req.ctx?.membership || !req.ctx?.project) {
+    throw new UnauthorizedError();
+  }
+
+  const params = req.params as Record<string, string | undefined>;
+  const categoryId = params.categoryId;
+  if (!categoryId) {
+    throw new NotFoundError(CATEGORY_NOT_FOUND_MESSAGE);
+  }
+
+  const category = await prisma.taskCategory.findFirst({
+    where: { id: categoryId, projectId: req.ctx.project.id },
+  });
+  if (!category) {
+    throw new NotFoundError(CATEGORY_NOT_FOUND_MESSAGE);
+  }
+
+  const roleKey = req.ctx.membership.role.key as RoleKey;
+
+  const categoryMembership = await prisma.categoryMembership.findUnique({
+    where: { categoryId_userId: { categoryId: category.id, userId: req.ctx.user.id } },
+  });
+
+  if (roleKey === "CLIENT") {
+    if (!categoryMembership) {
+      throw new NotFoundError(CATEGORY_NOT_FOUND_MESSAGE);
+    }
+  } else if (category.visibility === "private") {
+    const hasElevatedRank = ROLE_RANK[roleKey] >= ROLE_RANK.PROJECT_MANAGER;
+    if (!categoryMembership && !hasElevatedRank) {
+      throw new NotFoundError(CATEGORY_NOT_FOUND_MESSAGE);
+    }
+  }
+  // visibility === "workspace": anyone who already has project access may proceed.
+
+  req.ctx.category = category;
+  req.ctx.categoryMembership = categoryMembership;
 }

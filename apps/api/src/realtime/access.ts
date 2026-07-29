@@ -46,3 +46,46 @@ export async function workspaceIdForProject(projectId: string): Promise<string |
   const project = await prisma.project.findUnique({ where: { id: projectId }, select: { workspaceId: true } });
   return project?.workspaceId ?? null;
 }
+
+/**
+ * Standalone re-implementation of rbac/guards.ts#requireCategoryAccess,
+ * mirroring hasProjectAccess's exact shape one level down (including the
+ * CLIENT-role-always-requires-membership rule). Used both when a client
+ * asks to join a `category:{id}` room and inside revalidateRoomsForUser's
+ * re-check-every-room loop below, so a category membership/visibility
+ * change — or a workspace/project membership change — forces immediate
+ * re-eviction from a category room the user can no longer access. Never
+ * cached, live DB read on every call.
+ */
+export async function hasCategoryAccess(userId: string, categoryId: string): Promise<boolean> {
+  const category = await prisma.taskCategory.findUnique({ where: { id: categoryId } });
+  if (!category) return false;
+
+  // A category's access is gated behind its parent project's access first
+  // (mirrors requireCategoryAccess running after requireProjectAccess).
+  const hasParentProjectAccess = await hasProjectAccess(userId, category.projectId);
+  if (!hasParentProjectAccess) return false;
+
+  const project = await prisma.project.findUnique({ where: { id: category.projectId } });
+  if (!project) return false;
+
+  const membership = await prisma.workspaceMembership.findUnique({
+    where: { workspaceId_userId: { workspaceId: project.workspaceId, userId } },
+    include: { role: true },
+  });
+  if (!membership || membership.status !== "active") return false;
+
+  const roleKey = membership.role.key as RoleKey;
+  const categoryMembership = await prisma.categoryMembership.findUnique({
+    where: { categoryId_userId: { categoryId, userId } },
+  });
+
+  if (roleKey === "CLIENT") {
+    return !!categoryMembership;
+  }
+  if (category.visibility === "private") {
+    const hasElevatedRank = ROLE_RANK[roleKey] >= ROLE_RANK.PROJECT_MANAGER;
+    return !!categoryMembership || hasElevatedRank;
+  }
+  return true;
+}

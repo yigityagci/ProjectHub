@@ -95,15 +95,17 @@ phases.
 | TeamMembership | Workspace-scoped | Phase 2+ |
 | Project | Workspace-scoped | Phase 2 |
 | ProjectMembership | Workspace-scoped | Phase 2 (needed for CLIENT project-level scoping) |
-| BoardColumn/Status | Project-scoped | Phase 2 (Kanban) |
-| Task | Project-scoped | `parentTaskId` for subtasks, `version` column for optimistic concurrency, `workspaceId` denormalized; Phase 2 |
-| Label / TaskLabel | Project-scoped | Phase 2 |
+| TaskCategory | Project-scoped | Phase 9. Required sub-division inside a project; owns its own board. `CategoryVisibility` (`workspace`/`private`) mirrors `ProjectVisibility` one level down. New projects start with **zero** categories (deliberate; see docs/PHASES.md Phase 9) |
+| CategoryMembership | Project-scoped (via category) | Phase 9. Mirrors `ProjectMembership` exactly, one level down |
+| BoardColumn/Status | Category-scoped | Phase 2, re-scoped in Phase 9 from `projectId` to `categoryId` (each category now owns its own board; `projectId`/`workspaceId` stay denormalized alongside `categoryId`) |
+| Task | Category-scoped | `parentTaskId` for subtasks, `version` column for optimistic concurrency, `workspaceId`/`projectId` denormalized; Phase 2, re-scoped in Phase 9 to add a required `categoryId` (a task belongs to exactly one category) |
+| Label / TaskLabel | Project-scoped | Phase 2. Deliberately NOT category-scoped — kept separate from Categories (Phase 9): free-form, multi-select, per-task tags vs. a structural grouping |
 | TaskAssignee | Task-scoped | Phase 2 |
-| Milestone | Project-scoped | Phase 2 |
+| Milestone | Project-scoped | Phase 2. Deliberately NOT category-scoped (Phase 9) — milestones remain project-wide |
 | Comment / Mention | Task-scoped | Phase 4 |
 | Attachment | Task-scoped | Phase 4, via StorageProvider abstraction |
 | Notification | User-scoped | Phase 4 |
-| ActivityEvent | Project-scoped | Normal project feed; Phase 5 |
+| ActivityEvent | Project-scoped, optionally category-scoped | Normal project feed; Phase 5. `categoryId` (Phase 9) is nullable — set for task-level events, null for project-level ones (e.g. `milestone_completed`); the project-wide feed excludes events for private categories the caller can't see |
 | AuditLogEntry | Workspace-scoped (nullable for instance-level events) | Separate, append-only, administrative/security events; **starts in Phase 1** |
 
 Every workspace-owned entity carries a `workspaceId` column (denormalized
@@ -125,6 +127,33 @@ Workspace 1───* AuditLogEntry             [workspaceId nullable]
 User 1───* AuditLogEntry (actor)          [actorId nullable]
 ```
 
+### Phase 9 entity-relationship extension — Categories
+
+`Project -> Category -> Task` is a new required isolation tier inserted
+between the existing `Project` and `BoardColumn`/`Task` layer, mirroring
+`Workspace -> Project`'s own visibility/membership pattern one level down:
+
+```
+Workspace 1───* TaskCategory
+Project 1───* TaskCategory                [required sub-division; 0 at project creation, never 0 again after the 1st]
+TaskCategory 1───* CategoryMembership *───1 User
+TaskCategory { visibility: workspace | private }   [mirrors ProjectVisibility]
+TaskCategory 1───* BoardColumn                      [each category owns its own board]
+TaskCategory 1───* Task                             [a task belongs to exactly ONE category]
+BoardColumn  { projectId, categoryId }              [projectId denormalized alongside categoryId]
+Task         { workspaceId, projectId, categoryId } [full parent chain denormalized, same convention as before]
+ActivityEvent { categoryId: nullable }              [null for project-level events, e.g. milestone_completed]
+```
+
+Access rule (`requireCategoryAccess`, enforced immediately after
+`requireProjectAccess` in the guard chain): `workspace`-visibility
+categories are open to anyone who already has project access;
+`private`-visibility categories require a `CategoryMembership` row or a
+role ranked >= Project Manager; CLIENT-role users always require an
+explicit `CategoryMembership` row regardless of visibility. Every denial
+path is `404`, matching the same non-leaking invariant used at every
+other layer in this system.
+
 ## 4. Security risk register and mitigations
 
 | # | Risk | Mitigation |
@@ -142,6 +171,7 @@ User 1───* AuditLogEntry (actor)          [actorId nullable]
 | 11 | Debug/info disclosure in prod | `NODE_ENV=production` disables stack traces in responses; structured error handler with safe error shapes + request id. |
 | 12 | Injection | Prisma parameterizes all queries; Zod validates all inputs; React escapes output by default. |
 | 13 | Privilege leak via error/existence | Unauthorized workspace access returns 404, not 403. |
+| 14 | Category-level isolation bypass (Phase 9) | `requireCategoryAccess` enforces the same live, never-cached, 404-not-403 pattern as `requireProjectAccess`, one level down, on every category/column/task/comment/attachment route; every task/column/comment/attachment query is scoped by `categoryId`, not merely `projectId`, so a resource in category A is never reachable via category B's URL even within the same project; real-time task/column/comment/attachment events broadcast to the category's Socket.IO room only (never also the parent project's room), and `revalidateRoomsForUser` re-checks category-room membership on every permission-change sweep the same way it already does for project rooms; the project-wide activity feed and analytics endpoints both narrow their result sets to the caller's visible-category-id set via a single shared helper (`listVisibleCategoryIdsForUser`), so a private category's data can never leak through an adjacent, differently-scoped endpoint. |
 
 ## 5. Modular monolith module map (Phase 1)
 

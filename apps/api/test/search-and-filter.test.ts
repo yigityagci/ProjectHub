@@ -8,6 +8,7 @@ import {
   registerAndLogin,
   createWorkspaceAs,
   createProjectAs,
+  createCategoryAs,
   type TestClient,
 } from "./helpers.js";
 
@@ -28,6 +29,9 @@ describe("Search & filter (Phase 7)", () => {
   let projectAId: string;
   let projectBId: string;
   let w2ProjectId: string;
+  let categoryAId: string;
+  let categoryBId: string;
+  let w2CategoryId: string;
 
   let taskLoginBugId: string;
   let taskDocsId: string;
@@ -56,39 +60,48 @@ describe("Search & filter (Phase 7)", () => {
     const w2Project = await createProjectAs(userB, w2Id, "Alpha Project");
     w2ProjectId = w2Project.id;
 
+    const categoryA = await createCategoryAs(owner, w1Id, projectAId, "Default");
+    categoryAId = categoryA.id;
+    const categoryB = await createCategoryAs(owner, w1Id, projectBId, "Default");
+    categoryBId = categoryB.id;
+    const w2Category = await createCategoryAs(userB, w2Id, w2ProjectId, "Default");
+    w2CategoryId = w2Category.id;
+
     // Same title in a DIFFERENT project of the SAME workspace, and in a
     // DIFFERENT workspace entirely — both must stay invisible to a search
     // scoped to projectA.
-    const taskRes = await owner.post(`/api/workspaces/${w1Id}/projects/${projectAId}/tasks`, {
-      title: "Fix login bug",
-      priority: "high",
-    });
+    const taskRes = await owner.post(
+      `/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks`,
+      { title: "Fix login bug", priority: "high" },
+    );
     taskLoginBugId = taskRes.json().task.id;
 
-    await owner.post(`/api/workspaces/${w1Id}/projects/${projectBId}/tasks`, {
-      title: "Fix login bug",
-    });
-    await userB.post(`/api/workspaces/${w2Id}/projects/${w2ProjectId}/tasks`, {
-      title: "Fix login bug",
-    });
+    await owner.post(
+      `/api/workspaces/${w1Id}/projects/${projectBId}/categories/${categoryBId}/tasks`,
+      { title: "Fix login bug" },
+    );
+    await userB.post(
+      `/api/workspaces/${w2Id}/projects/${w2ProjectId}/categories/${w2CategoryId}/tasks`,
+      { title: "Fix login bug" },
+    );
 
-    const docsRes = await owner.post(`/api/workspaces/${w1Id}/projects/${projectAId}/tasks`, {
+    const docsRes = await owner.post(`/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks`, {
       title: "Update docs",
       priority: "low",
     });
     taskDocsId = docsRes.json().task.id;
 
-    const overdueRes = await owner.post(`/api/workspaces/${w1Id}/projects/${projectAId}/tasks`, {
+    const overdueRes = await owner.post(`/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks`, {
       title: "Overdue thing",
       dueDate: "2000-01-01T00:00:00.000Z",
     });
     taskOverdueId = overdueRes.json().task.id;
 
-    const parentRes = await owner.post(`/api/workspaces/${w1Id}/projects/${projectAId}/tasks`, {
+    const parentRes = await owner.post(`/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks`, {
       title: "Parent task",
     });
     taskParentId = parentRes.json().task.id;
-    const subtaskRes = await owner.post(`/api/workspaces/${w1Id}/projects/${projectAId}/tasks`, {
+    const subtaskRes = await owner.post(`/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks`, {
       title: "Subtask of parent",
       parentTaskId: taskParentId,
     });
@@ -100,10 +113,10 @@ describe("Search & filter (Phase 7)", () => {
     });
     labelUrgentId = labelRes.json().label.id;
     await owner.post(
-      `/api/workspaces/${w1Id}/projects/${projectAId}/tasks/${taskLoginBugId}/labels/${labelUrgentId}`,
+      `/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks/${taskLoginBugId}/labels/${labelUrgentId}`,
     );
 
-    await owner.post(`/api/workspaces/${w1Id}/projects/${projectAId}/tasks/${taskLoginBugId}/assignees`, {
+    await owner.post(`/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks/${taskLoginBugId}/assignees`, {
       userId: (await owner.get("/api/auth/me")).json().user.id,
     });
   });
@@ -115,7 +128,7 @@ describe("Search & filter (Phase 7)", () => {
   describe("Task search/filter", () => {
     it("q substring-matches title/description, scoped to this project only", async () => {
       const res = await owner.get(
-        `/api/workspaces/${w1Id}/projects/${projectAId}/tasks?q=login`,
+        `/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks?q=login`,
       );
       expect(res.statusCode).toBe(200);
       const tasks = res.json().tasks as Array<{ id: string; title: string }>;
@@ -125,14 +138,14 @@ describe("Search & filter (Phase 7)", () => {
 
     it("q is case-insensitive", async () => {
       const res = await owner.get(
-        `/api/workspaces/${w1Id}/projects/${projectAId}/tasks?q=LOGIN`,
+        `/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks?q=LOGIN`,
       );
       expect(res.json().tasks).toHaveLength(1);
     });
 
     it("priority filter narrows results", async () => {
       const res = await owner.get(
-        `/api/workspaces/${w1Id}/projects/${projectAId}/tasks?priority=high`,
+        `/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks?priority=high`,
       );
       const tasks = res.json().tasks as Array<{ id: string }>;
       expect(tasks.map((t) => t.id)).toEqual([taskLoginBugId]);
@@ -140,7 +153,7 @@ describe("Search & filter (Phase 7)", () => {
 
     it("labelId filter narrows results", async () => {
       const res = await owner.get(
-        `/api/workspaces/${w1Id}/projects/${projectAId}/tasks?labelId=${labelUrgentId}`,
+        `/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks?labelId=${labelUrgentId}`,
       );
       const tasks = res.json().tasks as Array<{ id: string }>;
       expect(tasks.map((t) => t.id)).toEqual([taskLoginBugId]);
@@ -149,7 +162,7 @@ describe("Search & filter (Phase 7)", () => {
     it("assigneeId filter narrows results", async () => {
       const me = (await owner.get("/api/auth/me")).json().user.id;
       const res = await owner.get(
-        `/api/workspaces/${w1Id}/projects/${projectAId}/tasks?assigneeId=${me}`,
+        `/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks?assigneeId=${me}`,
       );
       const tasks = res.json().tasks as Array<{ id: string }>;
       expect(tasks.map((t) => t.id)).toEqual([taskLoginBugId]);
@@ -157,7 +170,7 @@ describe("Search & filter (Phase 7)", () => {
 
     it("overdue filter returns only tasks with a past dueDate and no completedAt", async () => {
       const res = await owner.get(
-        `/api/workspaces/${w1Id}/projects/${projectAId}/tasks?overdue=true`,
+        `/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks?overdue=true`,
       );
       const tasks = res.json().tasks as Array<{ id: string }>;
       expect(tasks.map((t) => t.id)).toEqual([taskOverdueId]);
@@ -165,7 +178,7 @@ describe("Search & filter (Phase 7)", () => {
 
     it("parentTaskId filter returns only that task's subtasks", async () => {
       const res = await owner.get(
-        `/api/workspaces/${w1Id}/projects/${projectAId}/tasks?parentTaskId=${taskParentId}`,
+        `/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks?parentTaskId=${taskParentId}`,
       );
       const tasks = res.json().tasks as Array<{ id: string }>;
       expect(tasks.map((t) => t.id)).toEqual([taskSubtaskId]);
@@ -173,7 +186,7 @@ describe("Search & filter (Phase 7)", () => {
 
     it("hasSubtasks=true returns only parent tasks that have subtasks", async () => {
       const res = await owner.get(
-        `/api/workspaces/${w1Id}/projects/${projectAId}/tasks?hasSubtasks=true`,
+        `/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks?hasSubtasks=true`,
       );
       const tasks = res.json().tasks as Array<{ id: string }>;
       expect(tasks.map((t) => t.id)).toEqual([taskParentId]);
@@ -181,14 +194,14 @@ describe("Search & filter (Phase 7)", () => {
 
     it("combining q with priority composes as AND, not OR", async () => {
       const res = await owner.get(
-        `/api/workspaces/${w1Id}/projects/${projectAId}/tasks?q=login&priority=low`,
+        `/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks?q=login&priority=low`,
       );
       expect(res.json().tasks).toHaveLength(0);
     });
 
     it("SECURITY: a crafted filter query cannot surface another project's task, even with the same title and same workspace", async () => {
       const res = await owner.get(
-        `/api/workspaces/${w1Id}/projects/${projectAId}/tasks?q=${encodeURIComponent("Fix login bug")}`,
+        `/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks?q=${encodeURIComponent("Fix login bug")}`,
       );
       const tasks = res.json().tasks as Array<{ id: string; title: string }>;
       // Both projectA and projectB (same workspace) have a task titled
@@ -203,7 +216,7 @@ describe("Search & filter (Phase 7)", () => {
       // project of the same name — confirm project A's search never
       // includes it (already implied above, but explicit for the isolation
       // suite's sake) and that userB cannot even reach projectA's endpoint.
-      const res = await owner.get(`/api/workspaces/${w1Id}/projects/${projectAId}/tasks?q=Fix`);
+      const res = await owner.get(`/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks?q=Fix`);
       const tasks = res.json().tasks as Array<{ id: string }>;
       expect(tasks.every((t) => t.id !== undefined)).toBe(true);
       expect(tasks).toHaveLength(1);
@@ -211,7 +224,7 @@ describe("Search & filter (Phase 7)", () => {
 
     it("SECURITY: an unrecognized query field (e.g. attempting to override scoping) is rejected, not silently ignored", async () => {
       const res = await owner.get(
-        `/api/workspaces/${w1Id}/projects/${projectAId}/tasks?projectId=${projectBId}`,
+        `/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks?projectId=${projectBId}`,
       );
       // This codebase's ValidationError responds 422 (see core/errors.ts),
       // not 400 — the key point is that the unrecognized field is rejected
@@ -222,7 +235,7 @@ describe("Search & filter (Phase 7)", () => {
 
     it("cross-workspace: a filter query against another workspace's project URL still returns 404, not an empty filtered list", async () => {
       const userB = await registerAndLogin(app, "userc@example.com");
-      const res = await userB.get(`/api/workspaces/${w1Id}/projects/${projectAId}/tasks?q=login`);
+      const res = await userB.get(`/api/workspaces/${w1Id}/projects/${projectAId}/categories/${categoryAId}/tasks?q=login`);
       expect(res.statusCode).toBe(404);
     });
   });

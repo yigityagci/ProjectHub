@@ -8,6 +8,7 @@ import {
   registerAndLogin,
   createWorkspaceAs,
   createProjectAs,
+  createCategoryAs,
   inviteAndAccept,
   type TestClient,
 } from "./helpers.js";
@@ -17,6 +18,7 @@ describe("Project/task/board RBAC (permission enforcement)", () => {
   let owner: TestClient;
   let workspaceId: string;
   let projectId: string;
+  let categoryId: string;
   let taskId: string;
 
   let viewer: TestClient;
@@ -35,10 +37,13 @@ describe("Project/task/board RBAC (permission enforcement)", () => {
 
     const project = await createProjectAs(owner, workspaceId, "Perm Project");
     projectId = project.id;
+    const category = await createCategoryAs(owner, workspaceId, projectId, "Default");
+    categoryId = category.id;
 
-    const taskRes = await owner.post(`/api/workspaces/${workspaceId}/projects/${projectId}/tasks`, {
-      title: "Seed task",
-    });
+    const taskRes = await owner.post(
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks`,
+      { title: "Seed task" },
+    );
     taskId = taskRes.json().task.id;
 
     viewer = await inviteAndAccept(app, owner, workspaceId, "viewer@example.com", "VIEWER");
@@ -56,6 +61,15 @@ describe("Project/task/board RBAC (permission enforcement)", () => {
     await owner.post(`/api/workspaces/${workspaceId}/projects/${projectId}/members`, {
       userId: clientMemberId,
     });
+    // CLIENT always requires an explicit CategoryMembership row too
+    // (mirrors CLIENT's "always requires ProjectMembership" rule one level
+    // up) — without this, the CLIENT's requests would be blocked at
+    // requireCategoryAccess (404) before ever reaching the permission
+    // check this test exists to exercise (403).
+    await owner.post(
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/members`,
+      { userId: clientMemberId },
+    );
   });
   afterAll(async () => {
     await closeTestApp(app);
@@ -63,14 +77,14 @@ describe("Project/task/board RBAC (permission enforcement)", () => {
   });
 
   it("VIEWER cannot create a task", async () => {
-    const res = await viewer.post(`/api/workspaces/${workspaceId}/projects/${projectId}/tasks`, {
+    const res = await viewer.post(`/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks`, {
       title: "Nope",
     });
     expect(res.statusCode).toBe(403);
   });
 
   it("VIEWER cannot create a board column", async () => {
-    const res = await viewer.post(`/api/workspaces/${workspaceId}/projects/${projectId}/columns`, {
+    const res = await viewer.post(`/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/columns`, {
       name: "Backlog",
       category: "todo",
     });
@@ -92,32 +106,32 @@ describe("Project/task/board RBAC (permission enforcement)", () => {
   });
 
   it("CLIENT (has project access) cannot create/edit/delete a task", async () => {
-    const createRes = await clientUser.post(`/api/workspaces/${workspaceId}/projects/${projectId}/tasks`, {
+    const createRes = await clientUser.post(`/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks`, {
       title: "Nope",
     });
     expect(createRes.statusCode).toBe(403);
 
     const editRes = await clientUser.patch(
-      `/api/workspaces/${workspaceId}/projects/${projectId}/tasks/${taskId}`,
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks/${taskId}`,
       { version: 1, title: "Hacked" },
     );
     expect(editRes.statusCode).toBe(403);
 
     const deleteRes = await clientUser.delete(
-      `/api/workspaces/${workspaceId}/projects/${projectId}/tasks/${taskId}`,
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks/${taskId}`,
     );
     expect(deleteRes.statusCode).toBe(403);
   });
 
   it("MEMBER can create and edit tasks", async () => {
-    const createRes = await member.post(`/api/workspaces/${workspaceId}/projects/${projectId}/tasks`, {
+    const createRes = await member.post(`/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks`, {
       title: "Member's task",
     });
     expect(createRes.statusCode).toBe(201);
     const memberTaskId = createRes.json().task.id;
 
     const editRes = await member.patch(
-      `/api/workspaces/${workspaceId}/projects/${projectId}/tasks/${memberTaskId}`,
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks/${memberTaskId}`,
       { version: 1, title: "Member's edited task" },
     );
     expect(editRes.statusCode).toBe(200);
@@ -125,12 +139,12 @@ describe("Project/task/board RBAC (permission enforcement)", () => {
   });
 
   it("MEMBER cannot delete tasks", async () => {
-    const res = await member.delete(`/api/workspaces/${workspaceId}/projects/${projectId}/tasks/${taskId}`);
+    const res = await member.delete(`/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks/${taskId}`);
     expect(res.statusCode).toBe(403);
   });
 
   it("MEMBER cannot manage boards, labels, milestones, or dependencies", async () => {
-    const columnRes = await member.post(`/api/workspaces/${workspaceId}/projects/${projectId}/columns`, {
+    const columnRes = await member.post(`/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/columns`, {
       name: "Backlog",
       category: "todo",
     });
@@ -149,14 +163,14 @@ describe("Project/task/board RBAC (permission enforcement)", () => {
     expect(milestoneRes.statusCode).toBe(403);
 
     const depRes = await member.post(
-      `/api/workspaces/${workspaceId}/projects/${projectId}/tasks/${taskId}/dependencies`,
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks/${taskId}/dependencies`,
       { blockingTaskId: taskId },
     );
     expect(depRes.statusCode).toBe(403);
   });
 
   it("PROJECT_MANAGER can manage boards, labels, milestones, and delete tasks (positive control)", async () => {
-    const columnRes = await pm.post(`/api/workspaces/${workspaceId}/projects/${projectId}/columns`, {
+    const columnRes = await pm.post(`/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/columns`, {
       name: "Backlog",
       category: "todo",
     });
@@ -173,7 +187,7 @@ describe("Project/task/board RBAC (permission enforcement)", () => {
     });
     expect(milestoneRes.statusCode).toBe(201);
 
-    const deleteRes = await pm.delete(`/api/workspaces/${workspaceId}/projects/${projectId}/tasks/${taskId}`);
+    const deleteRes = await pm.delete(`/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks/${taskId}`);
     expect(deleteRes.statusCode).toBe(200);
   });
 

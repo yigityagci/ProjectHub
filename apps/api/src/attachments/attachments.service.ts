@@ -5,7 +5,7 @@ import { env } from "../config/env.js";
 import { NotFoundError, ForbiddenError, ValidationError } from "../core/errors.js";
 import { isElevatedRole } from "../rbac/authorize.js";
 import { storageProvider } from "../storage/local-disk-provider.js";
-import { emitToProject } from "../realtime/realtime.js";
+import { emitToCategory } from "../realtime/realtime.js";
 
 const ATTACHMENT_NOT_FOUND_MESSAGE = "This attachment doesn't exist on this task.";
 
@@ -32,10 +32,10 @@ function serializeAttachment(attachment: {
   };
 }
 
-export async function listAttachments(workspaceId: string, projectId: string, taskId: string) {
-  const task = await prisma.task.findFirst({ where: { id: taskId, workspaceId, projectId } });
+export async function listAttachments(workspaceId: string, categoryId: string, taskId: string) {
+  const task = await prisma.task.findFirst({ where: { id: taskId, workspaceId, categoryId } });
   if (!task) {
-    throw new NotFoundError("This task doesn't exist in this project.");
+    throw new NotFoundError("This task doesn't exist in this category.");
   }
   const attachments = await prisma.attachment.findMany({
     where: { taskId, workspaceId },
@@ -47,7 +47,7 @@ export async function listAttachments(workspaceId: string, projectId: string, ta
 
 export interface CreateAttachmentParams {
   workspaceId: string;
-  projectId: string;
+  categoryId: string;
   taskId: string;
   uploaderId: string;
   filename: string;
@@ -62,11 +62,11 @@ export interface CreateAttachmentParams {
  * path traversal), and records the Attachment row.
  */
 export async function createAttachment(params: CreateAttachmentParams) {
-  const { workspaceId, projectId, taskId, uploaderId, filename, contentType, data } = params;
+  const { workspaceId, categoryId, taskId, uploaderId, filename, contentType, data } = params;
 
-  const task = await prisma.task.findFirst({ where: { id: taskId, workspaceId, projectId } });
+  const task = await prisma.task.findFirst({ where: { id: taskId, workspaceId, categoryId } });
   if (!task) {
-    throw new NotFoundError("This task doesn't exist in this project.");
+    throw new NotFoundError("This task doesn't exist in this category.");
   }
 
   if (!isAllowedAttachmentContentType(contentType)) {
@@ -95,18 +95,18 @@ export async function createAttachment(params: CreateAttachmentParams) {
   });
 
   const serialized = serializeAttachment(attachment);
-  emitToProject(projectId, "attachment.created", serialized);
+  emitToCategory(categoryId, "attachment.created", serialized);
   return serialized;
 }
 
 export async function getAttachmentForDownload(
   workspaceId: string,
-  projectId: string,
+  categoryId: string,
   taskId: string,
   attachmentId: string,
 ) {
   const attachment = await prisma.attachment.findFirst({
-    where: { id: attachmentId, workspaceId, taskId, task: { projectId } },
+    where: { id: attachmentId, workspaceId, taskId, task: { categoryId } },
   });
   if (!attachment) {
     throw new NotFoundError(ATTACHMENT_NOT_FOUND_MESSAGE);
@@ -117,14 +117,14 @@ export async function getAttachmentForDownload(
 
 export async function deleteAttachment(
   workspaceId: string,
-  projectId: string,
+  categoryId: string,
   taskId: string,
   attachmentId: string,
   requesterId: string,
   requesterRole: RoleKey,
 ) {
   const attachment = await prisma.attachment.findFirst({
-    where: { id: attachmentId, workspaceId, taskId, task: { projectId } },
+    where: { id: attachmentId, workspaceId, taskId, task: { categoryId } },
   });
   if (!attachment) {
     throw new NotFoundError(ATTACHMENT_NOT_FOUND_MESSAGE);
@@ -135,5 +135,5 @@ export async function deleteAttachment(
 
   await prisma.attachment.delete({ where: { id: attachmentId } });
   await storageProvider.delete(attachment.storageKey);
-  emitToProject(projectId, "attachment.deleted", { id: attachmentId, taskId });
+  emitToCategory(categoryId, "attachment.deleted", { id: attachmentId, taskId });
 }

@@ -4,7 +4,7 @@ import { prisma } from "../core/prisma.js";
 import { NotFoundError, ForbiddenError } from "../core/errors.js";
 import { isElevatedRole } from "../rbac/authorize.js";
 import type { RoleKey } from "@projecthub/shared";
-import { emitToProject } from "../realtime/realtime.js";
+import { emitToCategory } from "../realtime/realtime.js";
 import { createNotification } from "../notifications/notifications.service.js";
 import { createActivityEvent, broadcastActivityEvent } from "../activity/activity.service.js";
 
@@ -33,10 +33,10 @@ function serializeComment(comment: {
   };
 }
 
-export async function listComments(workspaceId: string, projectId: string, taskId: string) {
-  const task = await prisma.task.findFirst({ where: { id: taskId, workspaceId, projectId } });
+export async function listComments(workspaceId: string, categoryId: string, taskId: string) {
+  const task = await prisma.task.findFirst({ where: { id: taskId, workspaceId, categoryId } });
   if (!task) {
-    throw new NotFoundError("This task doesn't exist in this project.");
+    throw new NotFoundError("This task doesn't exist in this category.");
   }
   const comments = await prisma.comment.findMany({
     where: { taskId, workspaceId },
@@ -74,6 +74,7 @@ async function resolveMentionedUserIds(
 export interface CreateCommentParams {
   workspaceId: string;
   projectId: string;
+  categoryId: string;
   taskId: string;
   authorId: string;
   authorDisplayName: string;
@@ -81,10 +82,10 @@ export interface CreateCommentParams {
 }
 
 export async function createComment(params: CreateCommentParams) {
-  const { workspaceId, projectId, taskId, authorId, authorDisplayName, input } = params;
-  const task = await prisma.task.findFirst({ where: { id: taskId, workspaceId, projectId } });
+  const { workspaceId, projectId, categoryId, taskId, authorId, authorDisplayName, input } = params;
+  const task = await prisma.task.findFirst({ where: { id: taskId, workspaceId, categoryId } });
   if (!task) {
-    throw new NotFoundError("This task doesn't exist in this project.");
+    throw new NotFoundError("This task doesn't exist in this category.");
   }
 
   const mentionedUserIds = await resolveMentionedUserIds(workspaceId, authorId, input.body);
@@ -106,6 +107,7 @@ export async function createComment(params: CreateCommentParams) {
     const event = await createActivityEvent(tx, {
       workspaceId,
       projectId,
+      categoryId,
       actorId: authorId,
       type: "comment_added",
       payload: { taskId, taskTitle: task.title, commentId: created.id, actorDisplayName: authorDisplayName },
@@ -119,7 +121,7 @@ export async function createComment(params: CreateCommentParams) {
   });
   const serialized = serializeComment(withMentions);
 
-  emitToProject(projectId, "comment.created", serialized);
+  emitToCategory(categoryId, "comment.created", serialized);
   broadcastActivityEvent(activityEvent);
 
   for (const mentionedUserId of mentionedUserIds) {
@@ -127,7 +129,7 @@ export async function createComment(params: CreateCommentParams) {
       workspaceId,
       recipientUserId: mentionedUserId,
       type: "mention",
-      payload: { taskId, projectId, commentId: comment.id, authorId },
+      payload: { taskId, projectId, categoryId, commentId: comment.id, authorId },
     });
   }
 
@@ -136,14 +138,14 @@ export async function createComment(params: CreateCommentParams) {
 
 export async function deleteComment(
   workspaceId: string,
-  projectId: string,
+  categoryId: string,
   taskId: string,
   commentId: string,
   requesterId: string,
   requesterRole: RoleKey,
 ) {
   const comment = await prisma.comment.findFirst({
-    where: { id: commentId, workspaceId, taskId },
+    where: { id: commentId, workspaceId, taskId, task: { categoryId } },
   });
   if (!comment) {
     throw new NotFoundError(COMMENT_NOT_FOUND_MESSAGE);
@@ -153,5 +155,5 @@ export async function deleteComment(
   }
 
   await prisma.comment.delete({ where: { id: commentId } });
-  emitToProject(projectId, "comment.deleted", { id: commentId, taskId });
+  emitToCategory(categoryId, "comment.deleted", { id: commentId, taskId });
 }

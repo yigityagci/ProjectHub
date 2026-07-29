@@ -373,6 +373,39 @@ body {
   font-size: 0.9rem;
 }
 
+/* Category list — deliberately mirrors the project-card list's
+   structural/navigational treatment (list/card items), NOT the small
+   colored-tag styling used for Labels, which stays visually distinct. */
+.ph-category-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.5rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.ph-category-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.9rem 1.1rem;
+  border: 1px solid var(--ph-border);
+  border-radius: 10px;
+  background: var(--ph-surface);
+  text-decoration: none;
+  color: inherit;
+}
+
+.ph-category-card:hover {
+  border-color: var(--ph-primary);
+}
+
+.ph-category-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
 .ph-field select,
 .ph-field textarea {
   width: 100%;

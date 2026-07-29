@@ -4,43 +4,33 @@ import type { CreateProjectInput, ProjectListQuery, UpdateProjectInput } from "@
 import { prisma } from "../core/prisma.js";
 import { ConflictError, NotFoundError, ValidationError } from "../core/errors.js";
 
-const DEFAULT_COLUMNS = [
-  { name: "To Do", category: "todo" as const, position: 1 },
-  { name: "In Progress", category: "in_progress" as const, position: 2 },
-  { name: "Done", category: "done" as const, position: 3 },
-];
-
 export interface CreateProjectServiceInput extends CreateProjectInput {
   workspaceId: string;
   ownerId: string;
 }
 
+/**
+ * Creates a project with ZERO categories and therefore zero BoardColumns —
+ * a deliberate product decision (Option A, two-step creation UX; see
+ * docs/PHASES.md), not an oversight. Phase 2 used to seed 3 default
+ * BoardColumns directly here; that seeding has moved one level down to
+ * category-creation time (see categories.service.ts#createCategory), since
+ * every category now owns its own board. The frontend forces the caller
+ * through a mandatory "create your first category" step immediately after
+ * this call succeeds, before any board can be reached.
+ */
 export async function createProject(input: CreateProjectServiceInput) {
-  return prisma.$transaction(async (tx) => {
-    const project = await tx.project.create({
-      data: {
-        workspaceId: input.workspaceId,
-        name: input.name,
-        description: input.description ?? null,
-        ownerId: input.ownerId,
-        status: input.status ?? "planning",
-        visibility: input.visibility ?? "workspace",
-        startDate: input.startDate ?? null,
-        targetDate: input.targetDate ?? null,
-      },
-    });
-
-    await tx.boardColumn.createMany({
-      data: DEFAULT_COLUMNS.map((c) => ({
-        workspaceId: input.workspaceId,
-        projectId: project.id,
-        name: c.name,
-        category: c.category,
-        position: c.position,
-      })),
-    });
-
-    return project;
+  return prisma.project.create({
+    data: {
+      workspaceId: input.workspaceId,
+      name: input.name,
+      description: input.description ?? null,
+      ownerId: input.ownerId,
+      status: input.status ?? "planning",
+      visibility: input.visibility ?? "workspace",
+      startDate: input.startDate ?? null,
+      targetDate: input.targetDate ?? null,
+    },
   });
 }
 

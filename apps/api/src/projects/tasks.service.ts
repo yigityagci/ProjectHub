@@ -7,18 +7,20 @@ import { createActivityEvent, broadcastActivityEvent } from "../activity/activit
 
 const DONE_CATEGORY = "done";
 
-const TASK_NOT_FOUND_MESSAGE = "This task doesn't exist in this project.";
+const TASK_NOT_FOUND_MESSAGE = "This task doesn't exist in this category.";
 
 /**
  * Builds the task search/filter `WHERE` clause on top of the mandatory
- * `projectId` scope (itself already derived from `req.ctx.project`, never
+ * `categoryId` scope (itself already derived from `req.ctx.category`, never
  * from client input) — every filter here only ever narrows this same
- * project's tasks, it can never be used to reach another project's or
- * workspace's rows. Substring match (`contains`), not a full-text index —
- * a deliberate v1 scaffolding choice, adequate for per-project task counts.
+ * category's tasks, it can never be used to reach another category's,
+ * project's, or workspace's rows (a task from category A can never be
+ * reached via category B's URL, even within the same project). Substring
+ * match (`contains`), not a full-text index — a deliberate v1 scaffolding
+ * choice, adequate for per-category task counts.
  */
-function buildTaskWhere(projectId: string, filters: TaskListQuery = {}): Prisma.TaskWhereInput {
-  const where: Prisma.TaskWhereInput = { projectId };
+function buildTaskWhere(categoryId: string, filters: TaskListQuery = {}): Prisma.TaskWhereInput {
+  const where: Prisma.TaskWhereInput = { categoryId };
 
   if (filters.q) {
     where.OR = [
@@ -42,9 +44,9 @@ function buildTaskWhere(projectId: string, filters: TaskListQuery = {}): Prisma.
   return where;
 }
 
-export async function listTasks(projectId: string, filters: TaskListQuery = {}) {
+export async function listTasks(categoryId: string, filters: TaskListQuery = {}) {
   return prisma.task.findMany({
-    where: buildTaskWhere(projectId, filters),
+    where: buildTaskWhere(categoryId, filters),
     include: {
       assignees: { include: { user: true } },
       labels: { include: { label: true } },
@@ -53,9 +55,9 @@ export async function listTasks(projectId: string, filters: TaskListQuery = {}) 
   });
 }
 
-export async function getTaskOrThrow(workspaceId: string, projectId: string, taskId: string) {
+export async function getTaskOrThrow(workspaceId: string, categoryId: string, taskId: string) {
   const task = await prisma.task.findFirst({
-    where: { id: taskId, workspaceId, projectId },
+    where: { id: taskId, workspaceId, categoryId },
     include: {
       assignees: { include: { user: true } },
       labels: { include: { label: true } },
@@ -71,13 +73,13 @@ export async function getTaskOrThrow(workspaceId: string, projectId: string, tas
  * Enforces the one-level subtask nesting rule when `parentTaskId` is being
  * set on `childTaskId`:
  *  - parentTaskId !== childTaskId
- *  - the parent must exist within the same workspace/project
+ *  - the parent must exist within the same workspace/category
  *  - the parent must not itself be a subtask (parent.parentTaskId === null)
  *  - the child must not already be a parent of other tasks
  */
 async function validateSubtaskNesting(
   workspaceId: string,
-  projectId: string,
+  categoryId: string,
   childTaskId: string,
   parentTaskId: string,
 ): Promise<void> {
@@ -86,10 +88,10 @@ async function validateSubtaskNesting(
   }
 
   const parent = await prisma.task.findFirst({
-    where: { id: parentTaskId, workspaceId, projectId },
+    where: { id: parentTaskId, workspaceId, categoryId },
   });
   if (!parent) {
-    throw new ValidationError("The parent task must belong to the same project.");
+    throw new ValidationError("The parent task must belong to the same category.");
   }
   if (parent.parentTaskId !== null) {
     throw new ValidationError("Subtasks can only be nested one level deep: a subtask cannot itself have subtasks.");
@@ -103,13 +105,13 @@ async function validateSubtaskNesting(
   }
 }
 
-async function resolveDefaultColumnId(projectId: string): Promise<string> {
+async function resolveDefaultColumnId(categoryId: string): Promise<string> {
   const column = await prisma.boardColumn.findFirst({
-    where: { projectId },
+    where: { categoryId },
     orderBy: { position: "asc" },
   });
   if (!column) {
-    throw new ValidationError("This project has no board columns to add a task to.");
+    throw new ValidationError("This category has no board columns to add a task to.");
   }
   return column.id;
 }
@@ -117,22 +119,23 @@ async function resolveDefaultColumnId(projectId: string): Promise<string> {
 export interface CreateTaskParams {
   workspaceId: string;
   projectId: string;
+  categoryId: string;
   creatorId: string;
   creatorDisplayName: string;
   input: CreateTaskInput;
 }
 
 export async function createTask(params: CreateTaskParams) {
-  const { workspaceId, projectId, creatorId, creatorDisplayName, input } = params;
+  const { workspaceId, projectId, categoryId, creatorId, creatorDisplayName, input } = params;
 
   let columnId = input.columnId;
   if (columnId) {
-    const column = await prisma.boardColumn.findFirst({ where: { id: columnId, projectId, workspaceId } });
+    const column = await prisma.boardColumn.findFirst({ where: { id: columnId, categoryId, workspaceId } });
     if (!column) {
-      throw new ValidationError("This column doesn't belong to this project.");
+      throw new ValidationError("This column doesn't belong to this category.");
     }
   } else {
-    columnId = await resolveDefaultColumnId(projectId);
+    columnId = await resolveDefaultColumnId(categoryId);
   }
 
   if (input.milestoneId) {
@@ -147,10 +150,10 @@ export async function createTask(params: CreateTaskParams) {
   let parentTaskId: string | null = null;
   if (input.parentTaskId) {
     const parent = await prisma.task.findFirst({
-      where: { id: input.parentTaskId, workspaceId, projectId },
+      where: { id: input.parentTaskId, workspaceId, categoryId },
     });
     if (!parent) {
-      throw new ValidationError("The parent task must belong to the same project.");
+      throw new ValidationError("The parent task must belong to the same category.");
     }
     if (parent.parentTaskId !== null) {
       throw new ValidationError(
@@ -161,7 +164,7 @@ export async function createTask(params: CreateTaskParams) {
   }
 
   const maxPositionTask = await prisma.task.findFirst({
-    where: { projectId, columnId },
+    where: { categoryId, columnId },
     orderBy: { position: "desc" },
   });
 
@@ -174,6 +177,7 @@ export async function createTask(params: CreateTaskParams) {
       data: {
         workspaceId,
         projectId,
+        categoryId,
         columnId,
         parentTaskId,
         milestoneId: input.milestoneId ?? null,
@@ -194,6 +198,7 @@ export async function createTask(params: CreateTaskParams) {
     const event = await createActivityEvent(tx, {
       workspaceId,
       projectId,
+      categoryId,
       actorId: creatorId,
       type: "task_created",
       payload: { taskId: created.id, taskTitle: created.title, actorDisplayName: creatorDisplayName },
@@ -213,6 +218,7 @@ export type UpdateTaskResult =
 export async function updateTask(
   workspaceId: string,
   projectId: string,
+  categoryId: string,
   taskId: string,
   input: UpdateTaskInput,
 ): Promise<UpdateTaskResult> {
@@ -227,7 +233,7 @@ export async function updateTask(
     }
   }
   if (input.parentTaskId !== undefined && input.parentTaskId !== null) {
-    await validateSubtaskNesting(workspaceId, projectId, taskId, input.parentTaskId);
+    await validateSubtaskNesting(workspaceId, categoryId, taskId, input.parentTaskId);
   }
 
   const { version, ...rest } = input;
@@ -241,13 +247,13 @@ export async function updateTask(
   if (rest.dueDate !== undefined) data.dueDate = rest.dueDate;
 
   const result = await prisma.task.updateMany({
-    where: { id: taskId, workspaceId, projectId, version },
+    where: { id: taskId, workspaceId, categoryId, version },
     data: { ...data, version: { increment: 1 } },
   });
 
   if (result.count === 0) {
     const current = await prisma.task.findFirst({
-      where: { id: taskId, workspaceId, projectId },
+      where: { id: taskId, workspaceId, categoryId },
       include: { assignees: { include: { user: true } }, labels: { include: { label: true } } },
     });
     if (!current) {
@@ -256,7 +262,7 @@ export async function updateTask(
     return { conflict: true, currentTask: current };
   }
 
-  const updated = await getTaskOrThrow(workspaceId, projectId, taskId);
+  const updated = await getTaskOrThrow(workspaceId, categoryId, taskId);
   return { conflict: false, task: updated };
 }
 
@@ -275,12 +281,13 @@ export interface TaskMoveActor {
 export async function moveTask(
   workspaceId: string,
   projectId: string,
+  categoryId: string,
   taskId: string,
   input: MoveTaskInputResolved,
   actor: TaskMoveActor,
 ): Promise<UpdateTaskResult> {
   const currentTask = await prisma.task.findFirst({
-    where: { id: taskId, workspaceId, projectId },
+    where: { id: taskId, workspaceId, categoryId },
     include: { column: true },
   });
   if (!currentTask) {
@@ -288,10 +295,10 @@ export async function moveTask(
   }
 
   const targetColumn = await prisma.boardColumn.findFirst({
-    where: { id: input.columnId, projectId, workspaceId },
+    where: { id: input.columnId, categoryId, workspaceId },
   });
   if (!targetColumn) {
-    throw new ValidationError("This column doesn't belong to this project.");
+    throw new ValidationError("This column doesn't belong to this category.");
   }
 
   let prevPosition: number | null = null;
@@ -299,7 +306,7 @@ export async function moveTask(
 
   if (input.beforeTaskId) {
     const before = await prisma.task.findFirst({
-      where: { id: input.beforeTaskId, projectId, workspaceId, columnId: input.columnId },
+      where: { id: input.beforeTaskId, categoryId, workspaceId, columnId: input.columnId },
     });
     if (!before) {
       throw new ValidationError("beforeTaskId must be an existing task in the target column.");
@@ -308,7 +315,7 @@ export async function moveTask(
   }
   if (input.afterTaskId) {
     const after = await prisma.task.findFirst({
-      where: { id: input.afterTaskId, projectId, workspaceId, columnId: input.columnId },
+      where: { id: input.afterTaskId, categoryId, workspaceId, columnId: input.columnId },
     });
     if (!after) {
       throw new ValidationError("afterTaskId must be an existing task in the target column.");
@@ -318,7 +325,7 @@ export async function moveTask(
 
   if (prevPosition === null && nextPosition === null) {
     const maxPositionTask = await prisma.task.findFirst({
-      where: { projectId, columnId: input.columnId, id: { not: taskId } },
+      where: { categoryId, columnId: input.columnId, id: { not: taskId } },
       orderBy: { position: "desc" },
     });
     prevPosition = maxPositionTask?.position ?? null;
@@ -328,7 +335,7 @@ export async function moveTask(
 
   if (needsRebalance) {
     const siblings = await prisma.task.findMany({
-      where: { projectId, columnId: input.columnId, id: { not: taskId } },
+      where: { categoryId, columnId: input.columnId, id: { not: taskId } },
       orderBy: { position: "asc" },
     });
     await prisma.$transaction(
@@ -357,7 +364,7 @@ export async function moveTask(
   }
 
   const result = await prisma.task.updateMany({
-    where: { id: taskId, workspaceId, projectId, version: input.version },
+    where: { id: taskId, workspaceId, categoryId, version: input.version },
     data: {
       columnId: input.columnId,
       position,
@@ -368,7 +375,7 @@ export async function moveTask(
 
   if (result.count === 0) {
     const current = await prisma.task.findFirst({
-      where: { id: taskId, workspaceId, projectId },
+      where: { id: taskId, workspaceId, categoryId },
       include: { assignees: { include: { user: true } }, labels: { include: { label: true } } },
     });
     if (!current) {
@@ -381,6 +388,7 @@ export async function moveTask(
     const activityEvent = await createActivityEvent(prisma, {
       workspaceId,
       projectId,
+      categoryId,
       actorId: actor.id,
       type: "task_moved",
       payload: {
@@ -396,17 +404,23 @@ export async function moveTask(
     broadcastActivityEvent(activityEvent);
   }
 
-  const updated = await getTaskOrThrow(workspaceId, projectId, taskId);
+  const updated = await getTaskOrThrow(workspaceId, categoryId, taskId);
   return { conflict: false, task: updated };
 }
 
-export async function deleteTask(workspaceId: string, projectId: string, taskId: string) {
-  await getTaskOrThrow(workspaceId, projectId, taskId);
+export async function deleteTask(workspaceId: string, categoryId: string, taskId: string) {
+  await getTaskOrThrow(workspaceId, categoryId, taskId);
   await prisma.task.delete({ where: { id: taskId } });
 }
 
-export async function addAssignee(workspaceId: string, projectId: string, taskId: string, userId: string) {
-  await getTaskOrThrow(workspaceId, projectId, taskId);
+export async function addAssignee(
+  workspaceId: string,
+  projectId: string,
+  categoryId: string,
+  taskId: string,
+  userId: string,
+) {
+  await getTaskOrThrow(workspaceId, categoryId, taskId);
 
   const workspaceMembership = await prisma.workspaceMembership.findUnique({
     where: { workspaceId_userId: { workspaceId, userId } },
@@ -422,8 +436,8 @@ export async function addAssignee(workspaceId: string, projectId: string, taskId
   });
 }
 
-export async function removeAssignee(workspaceId: string, projectId: string, taskId: string, userId: string) {
-  await getTaskOrThrow(workspaceId, projectId, taskId);
+export async function removeAssignee(workspaceId: string, categoryId: string, taskId: string, userId: string) {
+  await getTaskOrThrow(workspaceId, categoryId, taskId);
   const existing = await prisma.taskAssignee.findUnique({ where: { taskId_userId: { taskId, userId } } });
   if (!existing) {
     throw new NotFoundError("This user is not assigned to this task.");
@@ -431,8 +445,17 @@ export async function removeAssignee(workspaceId: string, projectId: string, tas
   await prisma.taskAssignee.delete({ where: { taskId_userId: { taskId, userId } } });
 }
 
-export async function addLabel(workspaceId: string, projectId: string, taskId: string, labelId: string) {
-  await getTaskOrThrow(workspaceId, projectId, taskId);
+export async function addLabel(
+  workspaceId: string,
+  projectId: string,
+  categoryId: string,
+  taskId: string,
+  labelId: string,
+) {
+  await getTaskOrThrow(workspaceId, categoryId, taskId);
+  // Labels remain project-scoped (deliberately separate from Categories —
+  // see docs/PHASES.md), so the label lookup below is still keyed by
+  // projectId, not categoryId.
   const label = await prisma.label.findFirst({ where: { id: labelId, projectId, workspaceId } });
   if (!label) {
     throw new NotFoundError("This label doesn't exist in this project.");
@@ -444,8 +467,8 @@ export async function addLabel(workspaceId: string, projectId: string, taskId: s
   });
 }
 
-export async function removeLabel(workspaceId: string, projectId: string, taskId: string, labelId: string) {
-  await getTaskOrThrow(workspaceId, projectId, taskId);
+export async function removeLabel(workspaceId: string, categoryId: string, taskId: string, labelId: string) {
+  await getTaskOrThrow(workspaceId, categoryId, taskId);
   const existing = await prisma.taskLabel.findUnique({ where: { taskId_labelId: { taskId, labelId } } });
   if (!existing) {
     throw new NotFoundError("This label is not attached to this task.");

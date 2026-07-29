@@ -79,6 +79,7 @@ const ADMIN_PERMISSIONS: Permission[] = [
   "analytics.view",
   "audit.view",
   "workspace.settings.manage",
+  "category.manage",
 ];
 
 const PROJECT_MANAGER_PERMISSIONS: Permission[] = [
@@ -96,6 +97,7 @@ const PROJECT_MANAGER_PERMISSIONS: Permission[] = [
   "dependency.manage",
   "analytics.view",
   "member.invite",
+  "category.manage",
 ];
 
 const MEMBER_PERMISSIONS: Permission[] = ["task.create", "task.edit", "task.assign"];

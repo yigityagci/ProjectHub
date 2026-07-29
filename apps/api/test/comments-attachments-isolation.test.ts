@@ -8,6 +8,7 @@ import {
   registerAndLogin,
   createWorkspaceAs,
   createProjectAs,
+  createCategoryAs,
   inviteAndAccept,
   getMemberUserId,
   buildMultipartUpload,
@@ -24,7 +25,9 @@ describe("Comments & attachments: workspace isolation, RBAC, and validation", ()
   let w1Id: string;
   let w2Id: string;
   let projectId: string;
+  let categoryId: string;
   let otherProjectId: string;
+  let otherCategoryId: string;
   let taskId: string;
   let memberUserId: string;
 
@@ -38,10 +41,13 @@ describe("Comments & attachments: workspace isolation, RBAC, and validation", ()
 
     const project = await createProjectAs(owner, w1Id, "CA Project");
     projectId = project.id;
+    const category = await createCategoryAs(owner, w1Id, projectId, "Default");
+    categoryId = category.id;
 
-    const taskRes = await owner.post(`/api/workspaces/${w1Id}/projects/${projectId}/tasks`, {
-      title: "Task with comments",
-    });
+    const taskRes = await owner.post(
+      `/api/workspaces/${w1Id}/projects/${projectId}/categories/${categoryId}/tasks`,
+      { title: "Task with comments" },
+    );
     taskId = taskRes.json().task.id;
 
     member = await inviteAndAccept(app, owner, w1Id, "ca-member@example.com", "MEMBER");
@@ -54,6 +60,8 @@ describe("Comments & attachments: workspace isolation, RBAC, and validation", ()
 
     const otherProject = await createProjectAs(owner, w1Id, "CA Project B");
     otherProjectId = otherProject.id;
+    const otherCategory = await createCategoryAs(owner, w1Id, otherProjectId, "Default");
+    otherCategoryId = otherCategory.id;
   });
 
   afterAll(async () => {
@@ -61,7 +69,8 @@ describe("Comments & attachments: workspace isolation, RBAC, and validation", ()
     await disconnectAll();
   });
 
-  const base = () => `/api/workspaces/${w1Id}/projects/${projectId}/tasks/${taskId}`;
+  const base = () =>
+    `/api/workspaces/${w1Id}/projects/${projectId}/categories/${categoryId}/tasks/${taskId}`;
 
   // ---------------------------------------------------------------------
   // Comments
@@ -101,7 +110,7 @@ describe("Comments & attachments: workspace isolation, RBAC, and validation", ()
 
   it("cross-project: the comment is not reachable via a different project's URL", async () => {
     const res = await owner.get(
-      `/api/workspaces/${w1Id}/projects/${otherProjectId}/tasks/${taskId}/comments`,
+      `/api/workspaces/${w1Id}/projects/${otherProjectId}/categories/${otherCategoryId}/tasks/${taskId}/comments`,
     );
     expect(res.statusCode).toBe(404);
   });

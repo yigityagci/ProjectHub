@@ -1,8 +1,10 @@
 import type {
+  CategoryMembership,
   Project,
   ProjectMembership,
   Role,
   RolePermission,
+  TaskCategory,
   User,
   Workspace,
   WorkspaceMembership,
@@ -23,6 +25,8 @@ export interface RequestContext {
   permissions?: Set<string>;
   project?: Project;
   projectMembership?: ProjectMembership | null;
+  category?: TaskCategory;
+  categoryMembership?: CategoryMembership | null;
 }
 
 export function toAuthenticatedUser(user: User): AuthenticatedUser {

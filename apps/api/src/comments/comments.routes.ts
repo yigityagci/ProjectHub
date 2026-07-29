@@ -7,19 +7,27 @@ import {
   requireCsrf,
   requireMembership,
   requireProjectAccess,
+  requireCategoryAccess,
   requirePermission,
 } from "../rbac/guards.js";
 import { listComments, createComment, deleteComment } from "./comments.service.js";
 
-const TASK_SCOPED_PREFIX = "/api/workspaces/:workspaceId/projects/:projectId/tasks/:taskId";
+// Comments are a task sub-resource, so this prefix follows the exact same
+// category-scoping restructuring as tasks.routes.ts: a task (and therefore
+// its comments) belongs to exactly one category, and requireCategoryAccess
+// gates every route here so a comment on a task in a private category the
+// caller can't see is never reachable, even if the caller can see the
+// parent project overall.
+const TASK_SCOPED_PREFIX =
+  "/api/workspaces/:workspaceId/projects/:projectId/categories/:categoryId/tasks/:taskId";
 
 export async function registerCommentRoutes(app: FastifyInstance): Promise<void> {
   app.get(
     `${TASK_SCOPED_PREFIX}/comments`,
-    { preHandler: [requireAuth, requireMembership, requireProjectAccess] },
+    { preHandler: [requireAuth, requireMembership, requireProjectAccess, requireCategoryAccess] },
     async (req, reply) => {
       const { taskId } = req.params as { taskId: string };
-      const comments = await listComments(req.ctx.workspace!.id, req.ctx.project!.id, taskId);
+      const comments = await listComments(req.ctx.workspace!.id, req.ctx.category!.id, taskId);
       return reply.send({ comments });
     },
   );
@@ -37,6 +45,7 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
         requireCsrf,
         requireMembership,
         requireProjectAccess,
+        requireCategoryAccess,
         requirePermission("task.edit"),
       ],
     },
@@ -49,6 +58,7 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
       const comment = await createComment({
         workspaceId: req.ctx.workspace!.id,
         projectId: req.ctx.project!.id,
+        categoryId: req.ctx.category!.id,
         taskId,
         authorId: req.ctx.user!.id,
         authorDisplayName: req.ctx.user!.displayName,
@@ -62,13 +72,15 @@ export async function registerCommentRoutes(app: FastifyInstance): Promise<void>
   // Admin/Owner), enforced in the service layer — not a permission gate.
   app.delete(
     `${TASK_SCOPED_PREFIX}/comments/:commentId`,
-    { preHandler: [requireAuth, requireCsrf, requireMembership, requireProjectAccess] },
+    {
+      preHandler: [requireAuth, requireCsrf, requireMembership, requireProjectAccess, requireCategoryAccess],
+    },
     async (req, reply) => {
       const { taskId, commentId } = req.params as { taskId: string; commentId: string };
       const roleKey = req.ctx.membership!.role.key as RoleKey;
       await deleteComment(
         req.ctx.workspace!.id,
-        req.ctx.project!.id,
+        req.ctx.category!.id,
         taskId,
         commentId,
         req.ctx.user!.id,

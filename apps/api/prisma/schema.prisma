@@ -52,6 +52,17 @@ enum ProjectVisibility {
   private
 }
 
+// TaskCategory's own visibility enum — deliberately named CategoryVisibility
+// (NOT reusing/confusing with ColumnCategory, which is the todo/in_progress/
+// done classification of a BoardColumn). Mirrors ProjectVisibility exactly,
+// one level down: a category is visible to every project member by default
+// ("workspace"), or can be restricted to an explicit CategoryMembership list
+// ("private").
+enum CategoryVisibility {
+  workspace
+  private
+}
+
 enum TaskPriority {
   low
   medium
@@ -90,23 +101,24 @@ model User {
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
-  sessions             Session[]
-  ownedWorkspaces      Workspace[]         @relation("WorkspaceOwner")
-  memberships          WorkspaceMembership[]
-  sentInvitations      Invitation[]        @relation("InvitationInvitedBy")
-  acceptedInvitations  Invitation[]        @relation("InvitationAcceptedBy")
-  auditLogEntries      AuditLogEntry[]
+  sessions            Session[]
+  ownedWorkspaces     Workspace[]           @relation("WorkspaceOwner")
+  memberships         WorkspaceMembership[]
+  sentInvitations     Invitation[]          @relation("InvitationInvitedBy")
+  acceptedInvitations Invitation[]          @relation("InvitationAcceptedBy")
+  auditLogEntries     AuditLogEntry[]
 
-  ownedProjects        Project[]           @relation("ProjectOwner")
-  projectMemberships   ProjectMembership[]
-  createdTasks         Task[]              @relation("TaskCreator")
-  taskAssignments      TaskAssignee[]
+  ownedProjects       Project[]            @relation("ProjectOwner")
+  projectMemberships  ProjectMembership[]
+  categoryMemberships CategoryMembership[]
+  createdTasks        Task[]               @relation("TaskCreator")
+  taskAssignments     TaskAssignee[]
 
-  commentsAuthored     Comment[]           @relation("CommentAuthor")
-  mentionsReceived     Mention[]           @relation("MentionedUser")
-  notifications        Notification[]      @relation("NotificationRecipient")
-  attachmentsUploaded  Attachment[]        @relation("AttachmentUploader")
-  activityEvents       ActivityEvent[]     @relation("ActivityEventActor")
+  commentsAuthored    Comment[]       @relation("CommentAuthor")
+  mentionsReceived    Mention[]       @relation("MentionedUser")
+  notifications       Notification[]  @relation("NotificationRecipient")
+  attachmentsUploaded Attachment[]    @relation("AttachmentUploader")
+  activityEvents      ActivityEvent[] @relation("ActivityEventActor")
 
   @@map("users")
 }
@@ -139,25 +151,27 @@ model Workspace {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  roles       Role[]
-  memberships WorkspaceMembership[]
-  invitations Invitation[]
+  roles           Role[]
+  memberships     WorkspaceMembership[]
+  invitations     Invitation[]
   auditLogEntries AuditLogEntry[]
 
-  projects           Project[]
-  projectMemberships ProjectMembership[]
-  boardColumns       BoardColumn[]
-  tasks              Task[]
-  taskAssignees      TaskAssignee[]
-  labels             Label[]
-  taskLabels         TaskLabel[]
-  milestones         Milestone[]
-  taskDependencies   TaskDependency[]
+  projects            Project[]
+  projectMemberships  ProjectMembership[]
+  taskCategories      TaskCategory[]
+  categoryMemberships CategoryMembership[]
+  boardColumns        BoardColumn[]
+  tasks               Task[]
+  taskAssignees       TaskAssignee[]
+  labels              Label[]
+  taskLabels          TaskLabel[]
+  milestones          Milestone[]
+  taskDependencies    TaskDependency[]
 
-  comments      Comment[]
-  mentions      Mention[]
-  notifications Notification[]
-  attachments   Attachment[]
+  comments       Comment[]
+  mentions       Mention[]
+  notifications  Notification[]
+  attachments    Attachment[]
   activityEvents ActivityEvent[]
 
   @@index([ownerId])
@@ -165,16 +179,16 @@ model Workspace {
 }
 
 model Role {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   key         RoleKey
   name        String
-  isSystem    Boolean  @default(true)
+  isSystem    Boolean   @default(true)
 
-  permissions  RolePermission[]
-  memberships  WorkspaceMembership[]
-  invitations  Invitation[]
+  permissions RolePermission[]
+  memberships WorkspaceMembership[]
+  invitations Invitation[]
 
   @@unique([workspaceId, key])
   @@map("roles")
@@ -209,39 +223,39 @@ model WorkspaceMembership {
 }
 
 model Invitation {
-  id             String            @id @default(uuid())
+  id             String           @id @default(uuid())
   workspaceId    String
-  workspace      Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace      Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   email          String
   roleId         String
-  role           Role              @relation(fields: [roleId], references: [id])
-  tokenHash      String            @unique
+  role           Role             @relation(fields: [roleId], references: [id])
+  tokenHash      String           @unique
   invitedById    String
-  invitedBy      User              @relation("InvitationInvitedBy", fields: [invitedById], references: [id])
-  status         InvitationStatus  @default(pending)
+  invitedBy      User             @relation("InvitationInvitedBy", fields: [invitedById], references: [id])
+  status         InvitationStatus @default(pending)
   expiresAt      DateTime
   acceptedAt     DateTime?
   acceptedUserId String?
-  acceptedUser   User?             @relation("InvitationAcceptedBy", fields: [acceptedUserId], references: [id])
-  createdAt      DateTime          @default(now())
+  acceptedUser   User?            @relation("InvitationAcceptedBy", fields: [acceptedUserId], references: [id])
+  createdAt      DateTime         @default(now())
 
   @@index([workspaceId, email])
   @@map("invitations")
 }
 
 model AuditLogEntry {
-  id          String    @id @default(uuid())
+  id          String     @id @default(uuid())
   workspaceId String?
   workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   actorId     String?
-  actor       User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actor       User?      @relation(fields: [actorId], references: [id], onDelete: SetNull)
   action      String
   targetType  String?
   targetId    String?
-  metadata    Json      @default("{}")
+  metadata    Json       @default("{}")
   ip          String?
   userAgent   String?
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime   @default(now())
 
   @@index([workspaceId, createdAt])
   @@index([action])
@@ -269,12 +283,13 @@ model Project {
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
-  memberships  ProjectMembership[]
-  columns      BoardColumn[]
-  tasks        Task[]
-  labels       Label[]
-  milestones   Milestone[]
-  dependencies TaskDependency[]
+  memberships    ProjectMembership[]
+  categories     TaskCategory[]
+  columns        BoardColumn[]
+  tasks          Task[]
+  labels         Label[]
+  milestones     Milestone[]
+  dependencies   TaskDependency[]
   activityEvents ActivityEvent[]
 
   @@index([workspaceId])
@@ -282,15 +297,69 @@ model Project {
   @@map("projects")
 }
 
+// ---------------------------------------------------------------------------
+// Categories — a required sub-division inside each Project, one level
+// between Project and BoardColumn/Task. Every category owns its own Kanban
+// board (its own BoardColumns) and its own access-control layer, mirroring
+// Project/ProjectVisibility/ProjectMembership exactly, one level down.
+//
+// Deliberately NOT named anything that could be confused with the
+// `ColumnCategory` enum (BoardColumn's todo/in_progress/done classification)
+// — this model is the structural "folder" grouping described in the product
+// requirements, unrelated to that enum.
+//
+// Product rule: a brand-new project starts with ZERO categories (no
+// auto-seeded default category name, ever) — see docs/PHASES.md for the
+// two-step project-then-category creation UX this supports. This is
+// distinct from the invariant enforced at the application layer
+// (rbac/authorize.ts#assertNotLastCategory) that a project which already
+// has >=1 category can never be reduced back to 0 via deletion.
+model TaskCategory {
+  id          String             @id @default(uuid())
+  workspaceId String
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId   String
+  project     Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  visibility  CategoryVisibility @default(workspace)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  memberships    CategoryMembership[]
+  columns        BoardColumn[]
+  tasks          Task[]
+  activityEvents ActivityEvent[]
+
+  @@unique([projectId, name])
+  @@index([workspaceId])
+  @@map("task_categories")
+}
+
+model CategoryMembership {
+  id          String       @id @default(uuid())
+  workspaceId String
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  categoryId  String
+  category    TaskCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime     @default(now())
+
+  @@unique([categoryId, userId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@map("category_memberships")
+}
+
 model ProjectMembership {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   projectId   String
-  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt   DateTime @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
 
   @@unique([projectId, userId])
   @@index([workspaceId])
@@ -299,22 +368,37 @@ model ProjectMembership {
 }
 
 model BoardColumn {
-  id          String         @id @default(uuid())
-  workspaceId String
-  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  projectId   String
-  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  name        String
-  category    ColumnCategory
-  position    Float
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  id           String         @id @default(uuid())
+  workspaceId  String
+  workspace    Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  // projectId stays denormalized here even though categoryId (below) already
+  // implies it — this codebase's established convention is to denormalize
+  // the full parent chain onto every deep entity (see e.g. Task.workspaceId
+  // even though Task.projectId already implies it).
+  projectId    String
+  project      Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  categoryId   String
+  // A category delete cascades to its own columns. In practice this only
+  // ever fires on an EMPTY category: category deletion is blocked at the
+  // application layer (categories.service.ts) whenever any of its columns
+  // still has tasks, mirroring columns.service.ts#deleteColumn's existing
+  // task-count check one level up.
+  taskCategory TaskCategory   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name         String
+  category     ColumnCategory
+  position     Float
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
 
   tasks Task[]
 
-  @@unique([projectId, name])
+  // Column names are unique within a category's own board now (not
+  // project-wide) — a project can have multiple categories, each with its
+  // own independent "To Do"/"In Progress"/"Done".
+  @@unique([categoryId, name])
   @@index([workspaceId])
   @@index([projectId, position])
+  @@index([categoryId, position])
   @@map("board_columns")
 }
 
@@ -324,6 +408,14 @@ model Task {
   workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   projectId    String
   project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  categoryId   String
+  // Restrict (not Cascade), mirroring `column`'s onDelete: Restrict below —
+  // defense in depth against a race where a task is inserted into a
+  // category between the app-layer "category has no tasks" check and the
+  // delete itself (see categories.service.ts#deleteCategory /
+  // assertNotLastCategory). A task belongs to exactly one category, implied
+  // by which category's board its column lives on.
+  taskCategory TaskCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   columnId     String
   column       BoardColumn  @relation(fields: [columnId], references: [id], onDelete: Restrict)
   parentTaskId String?
@@ -349,15 +441,16 @@ model Task {
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
-  assignees          TaskAssignee[]
-  labels             TaskLabel[]
-  blockedByEdges     TaskDependency[] @relation("TaskBlocked")
-  blockingEdges      TaskDependency[] @relation("TaskBlocking")
-  comments           Comment[]
-  attachments        Attachment[]
+  assignees      TaskAssignee[]
+  labels         TaskLabel[]
+  blockedByEdges TaskDependency[] @relation("TaskBlocked")
+  blockingEdges  TaskDependency[] @relation("TaskBlocking")
+  comments       Comment[]
+  attachments    Attachment[]
 
   @@index([workspaceId])
   @@index([projectId, columnId, position])
+  @@index([categoryId, columnId, position])
   @@index([parentTaskId])
   @@index([milestoneId])
   @@index([creatorId])
@@ -365,14 +458,14 @@ model Task {
 }
 
 model TaskAssignee {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   taskId      String
-  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task        Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
   userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  assignedAt  DateTime @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedAt  DateTime  @default(now())
 
   @@unique([taskId, userId])
   @@index([workspaceId])
@@ -381,14 +474,14 @@ model TaskAssignee {
 }
 
 model Label {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   projectId   String
-  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   name        String
   color       String
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   taskLabels TaskLabel[]
 
@@ -398,13 +491,13 @@ model Label {
 }
 
 model TaskLabel {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   taskId      String
-  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task        Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
   labelId     String
-  label       Label    @relation(fields: [labelId], references: [id], onDelete: Cascade)
+  label       Label     @relation(fields: [labelId], references: [id], onDelete: Cascade)
 
   @@unique([taskId, labelId])
   @@index([workspaceId])
@@ -433,16 +526,16 @@ model Milestone {
 }
 
 model TaskDependency {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   workspaceId    String
   workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   projectId      String
-  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   blockedTaskId  String
-  blockedTask    Task     @relation("TaskBlocked", fields: [blockedTaskId], references: [id], onDelete: Cascade)
+  blockedTask    Task      @relation("TaskBlocked", fields: [blockedTaskId], references: [id], onDelete: Cascade)
   blockingTaskId String
-  blockingTask   Task     @relation("TaskBlocking", fields: [blockingTaskId], references: [id], onDelete: Cascade)
-  createdAt      DateTime @default(now())
+  blockingTask   Task      @relation("TaskBlocking", fields: [blockingTaskId], references: [id], onDelete: Cascade)
+  createdAt      DateTime  @default(now())
 
   @@unique([blockedTaskId, blockingTaskId])
   @@index([workspaceId])
@@ -483,14 +576,14 @@ model Comment {
 }
 
 model Mention {
-  id              String   @id @default(uuid())
+  id              String    @id @default(uuid())
   workspaceId     String
   workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   commentId       String
-  comment         Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  comment         Comment   @relation(fields: [commentId], references: [id], onDelete: Cascade)
   mentionedUserId String
-  mentionedUser   User     @relation("MentionedUser", fields: [mentionedUserId], references: [id], onDelete: Cascade)
-  createdAt       DateTime @default(now())
+  mentionedUser   User      @relation("MentionedUser", fields: [mentionedUserId], references: [id], onDelete: Cascade)
+  createdAt       DateTime  @default(now())
 
   @@index([workspaceId])
   @@index([commentId])
@@ -515,18 +608,18 @@ model Notification {
 }
 
 model Attachment {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   taskId      String
-  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task        Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
   uploaderId  String
-  uploader    User     @relation("AttachmentUploader", fields: [uploaderId], references: [id])
+  uploader    User      @relation("AttachmentUploader", fields: [uploaderId], references: [id])
   filename    String
   contentType String
   sizeBytes   Int
-  storageKey  String   @unique
-  createdAt   DateTime @default(now())
+  storageKey  String    @unique
+  createdAt   DateTime  @default(now())
 
   @@index([workspaceId])
   @@index([taskId])
@@ -545,18 +638,28 @@ model Attachment {
 // those referenced rows may themselves change or be deleted later.
 
 model ActivityEvent {
-  id          String            @id @default(uuid())
-  workspaceId String
-  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  projectId   String
-  project     Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  actorId     String
-  actor       User              @relation("ActivityEventActor", fields: [actorId], references: [id])
-  type        ActivityEventType
-  payload     Json              @default("{}")
-  createdAt   DateTime          @default(now())
+  id           String            @id @default(uuid())
+  workspaceId  String
+  workspace    Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId    String
+  project      Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  // Nullable: category-scoped events (task_created/task_moved/task_assigned/
+  // comment_added on a task) populate this; project-level events that have
+  // no category in scope (milestone_completed — milestones remain
+  // project-scoped, not category-scoped) leave it null. SetNull on category
+  // delete so a feed entry never disappears just because its category was
+  // later removed — it just becomes a project-level event going forward for
+  // visibility-filtering purposes.
+  categoryId   String?
+  taskCategory TaskCategory?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  actorId      String
+  actor        User              @relation("ActivityEventActor", fields: [actorId], references: [id])
+  type         ActivityEventType
+  payload      Json              @default("{}")
+  createdAt    DateTime          @default(now())
 
   @@index([workspaceId])
   @@index([projectId, createdAt])
+  @@index([categoryId])
   @@map("activity_events")
 }

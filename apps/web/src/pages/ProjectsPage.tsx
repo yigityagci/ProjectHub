@@ -87,13 +87,23 @@ export default function ProjectsPage({ user }: { user: CurrentUser }) {
     setError(null);
     setCreating(true);
     try {
-      await api.post(`/api/workspaces/${workspaceId}/projects`, { name, visibility });
+      // Project creation stays exactly this simple (name + visibility only
+      // — no category field here, per the Option A two-step creation UX,
+      // see docs/PHASES.md). A brand-new project always has zero
+      // categories; immediately after creation we forward the user into
+      // the mandatory "create your first category" step rather than back
+      // into this list.
+      const res = await api.post<{ project: { id: string } }>(`/api/workspaces/${workspaceId}/projects`, {
+        name,
+        visibility,
+      });
       setName("");
       setVisibility("workspace");
-      await load();
+      navigate(
+        `/workspace/${workspaceId}/projects/${res.project.id}/categories/new?first=true`,
+      );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong.");
-    } finally {
       setCreating(false);
     }
   }
@@ -174,7 +184,10 @@ export default function ProjectsPage({ user }: { user: CurrentUser }) {
           <ul className="ph-project-list">
             {projects.map((p) => (
               <li key={p.id}>
-                <Link className="ph-project-card" to={`/workspace/${workspaceId}/projects/${p.id}/board`}>
+                <Link
+                  className="ph-project-card"
+                  to={`/workspace/${workspaceId}/projects/${p.id}/categories`}
+                >
                   <span>{p.name}</span>
                   <span className="ph-project-card-meta">
                     {p.visibility === "private" && <span className="ph-badge ph-badge-private">Private</span>}

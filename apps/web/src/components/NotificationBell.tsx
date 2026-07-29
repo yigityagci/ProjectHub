@@ -7,7 +7,14 @@ export interface AppNotification {
   id: string;
   workspaceId: string;
   type: "mention" | "task_assigned" | "comment_reply";
-  payload: { taskId?: string; projectId?: string; commentId?: string; assignedBy?: string; authorId?: string };
+  payload: {
+    taskId?: string;
+    projectId?: string;
+    categoryId?: string;
+    commentId?: string;
+    assignedBy?: string;
+    authorId?: string;
+  };
   readAt: string | null;
   createdAt: string;
 }
@@ -67,8 +74,15 @@ export default function NotificationBell() {
       await api.post(`/api/notifications/${n.id}/read`).catch(() => undefined);
     }
     setOpen(false);
-    if (n.payload.projectId && n.payload.taskId) {
-      navigate(`/workspace/${n.workspaceId}/projects/${n.payload.projectId}/board`);
+    if (n.payload.projectId && n.payload.taskId && n.payload.categoryId) {
+      navigate(
+        `/workspace/${n.workspaceId}/projects/${n.payload.projectId}/categories/${n.payload.categoryId}/board`,
+      );
+    } else if (n.payload.projectId) {
+      // Older notifications (created before categories existed) or ones
+      // missing a categoryId fall back to the category picker rather than
+      // a broken/guessed board URL.
+      navigate(`/workspace/${n.workspaceId}/projects/${n.payload.projectId}/categories`);
     }
   }
 

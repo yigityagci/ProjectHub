@@ -31,6 +31,8 @@ export async function resetDatabase(): Promise<void> {
       "tasks",
       "milestones",
       "board_columns",
+      "category_memberships",
+      "task_categories",
       "project_memberships",
       "projects",
       "workspace_memberships",
@@ -282,6 +284,36 @@ export async function createProjectAs(
     throw new Error(`Create project failed: ${res.statusCode} ${res.body}`);
   }
   return res.json().project;
+}
+
+export interface CreatedCategory {
+  id: string;
+  projectId: string;
+  name: string;
+  visibility: string;
+}
+
+/**
+ * Every project starts with ZERO categories (see docs/PHASES.md) — this
+ * helper mirrors the mandatory "create your first category" step the
+ * frontend forces after project creation, used by every test that needs a
+ * category-scoped board (columns/tasks) to exist.
+ */
+export async function createCategoryAs(
+  client: TestClient,
+  workspaceId: string,
+  projectId: string,
+  name: string,
+  extra: Record<string, unknown> = {},
+): Promise<CreatedCategory> {
+  const res = await client.post(`/api/workspaces/${workspaceId}/projects/${projectId}/categories`, {
+    name,
+    ...extra,
+  });
+  if (res.statusCode !== 201) {
+    throw new Error(`Create category failed: ${res.statusCode} ${res.body}`);
+  }
+  return res.json().category;
 }
 
 /**

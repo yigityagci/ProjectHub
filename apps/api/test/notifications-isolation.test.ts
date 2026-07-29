@@ -8,6 +8,7 @@ import {
   registerAndLogin,
   createWorkspaceAs,
   createProjectAs,
+  createCategoryAs,
   inviteAndAccept,
   getMemberUserId,
   type TestClient,
@@ -20,6 +21,7 @@ describe("Notifications: recipient-only access (IDOR protection)", () => {
   let stranger: TestClient;
   let workspaceId: string;
   let projectId: string;
+  let categoryId: string;
   let taskId: string;
   let notificationId: string;
 
@@ -33,10 +35,13 @@ describe("Notifications: recipient-only access (IDOR protection)", () => {
 
     const project = await createProjectAs(owner, workspaceId, "Notif Project");
     projectId = project.id;
+    const category = await createCategoryAs(owner, workspaceId, projectId, "Default");
+    categoryId = category.id;
 
-    const taskRes = await owner.post(`/api/workspaces/${workspaceId}/projects/${projectId}/tasks`, {
-      title: "Assign me",
-    });
+    const taskRes = await owner.post(
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks`,
+      { title: "Assign me" },
+    );
     taskId = taskRes.json().task.id;
 
     recipient = await inviteAndAccept(app, owner, workspaceId, "notif-recipient@example.com", "MEMBER");
@@ -44,7 +49,7 @@ describe("Notifications: recipient-only access (IDOR protection)", () => {
 
     // Triggers a `task_assigned` notification for `recipient`.
     const assignRes = await owner.post(
-      `/api/workspaces/${workspaceId}/projects/${projectId}/tasks/${taskId}/assignees`,
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks/${taskId}/assignees`,
       { userId: recipientUserId },
     );
     expect(assignRes.statusCode).toBe(201);

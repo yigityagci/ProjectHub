@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import type { RoleKey } from "@projecthub/shared";
 import { requireAuth, requireMembership, requireProjectAccess, requirePermission } from "../rbac/guards.js";
 import { getProjectAnalytics } from "./analytics.service.js";
 
@@ -21,11 +22,17 @@ export async function registerAnalyticsRoutes(app: FastifyInstance): Promise<voi
       ],
     },
     async (req, reply) => {
-      const analytics = await getProjectAnalytics(req.ctx.workspace!.id, req.ctx.project!.id, {
-        startDate: req.ctx.project!.startDate,
-        targetDate: req.ctx.project!.targetDate,
-        createdAt: req.ctx.project!.createdAt,
-      });
+      const roleKey = req.ctx.membership!.role.key as RoleKey;
+      const analytics = await getProjectAnalytics(
+        req.ctx.workspace!.id,
+        req.ctx.project!.id,
+        {
+          startDate: req.ctx.project!.startDate,
+          targetDate: req.ctx.project!.targetDate,
+          createdAt: req.ctx.project!.createdAt,
+        },
+        { userId: req.ctx.user!.id, roleKey },
+      );
       return reply.send({ analytics });
     },
   );

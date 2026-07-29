@@ -3,18 +3,18 @@ import { prisma } from "../core/prisma.js";
 import { ConflictError, NotFoundError } from "../core/errors.js";
 import { computeAppendPosition } from "./position.js";
 
-const COLUMN_NOT_FOUND_MESSAGE = "This column doesn't exist in this project.";
+const COLUMN_NOT_FOUND_MESSAGE = "This column doesn't exist in this category.";
 
-export async function listColumns(projectId: string) {
+export async function listColumns(categoryId: string) {
   return prisma.boardColumn.findMany({
-    where: { projectId },
+    where: { categoryId },
     orderBy: { position: "asc" },
   });
 }
 
-export async function getColumnOrThrow(workspaceId: string, projectId: string, columnId: string) {
+export async function getColumnOrThrow(workspaceId: string, categoryId: string, columnId: string) {
   const column = await prisma.boardColumn.findFirst({
-    where: { id: columnId, projectId, workspaceId },
+    where: { id: columnId, categoryId, workspaceId },
   });
   if (!column) {
     throw new NotFoundError(COLUMN_NOT_FOUND_MESSAGE);
@@ -22,9 +22,14 @@ export async function getColumnOrThrow(workspaceId: string, projectId: string, c
   return column;
 }
 
-export async function createColumn(workspaceId: string, projectId: string, input: CreateColumnInput) {
+export async function createColumn(
+  workspaceId: string,
+  projectId: string,
+  categoryId: string,
+  input: CreateColumnInput,
+) {
   const maxPositionColumn = await prisma.boardColumn.findFirst({
-    where: { projectId },
+    where: { categoryId },
     orderBy: { position: "desc" },
   });
 
@@ -32,6 +37,7 @@ export async function createColumn(workspaceId: string, projectId: string, input
     data: {
       workspaceId,
       projectId,
+      categoryId,
       name: input.name,
       category: input.category,
       position: computeAppendPosition(maxPositionColumn?.position ?? null),
@@ -41,11 +47,11 @@ export async function createColumn(workspaceId: string, projectId: string, input
 
 export async function updateColumn(
   workspaceId: string,
-  projectId: string,
+  categoryId: string,
   columnId: string,
   input: UpdateColumnInput,
 ) {
-  await getColumnOrThrow(workspaceId, projectId, columnId);
+  await getColumnOrThrow(workspaceId, categoryId, columnId);
   return prisma.boardColumn.update({
     where: { id: columnId },
     data: {
@@ -55,13 +61,13 @@ export async function updateColumn(
   });
 }
 
-export async function reorderColumns(workspaceId: string, projectId: string, columnIds: string[]) {
-  const columns = await prisma.boardColumn.findMany({ where: { projectId, workspaceId } });
+export async function reorderColumns(workspaceId: string, categoryId: string, columnIds: string[]) {
+  const columns = await prisma.boardColumn.findMany({ where: { categoryId, workspaceId } });
   const columnIdSet = new Set(columns.map((c) => c.id));
 
   if (columnIds.length !== columns.length || !columnIds.every((id) => columnIdSet.has(id))) {
     throw new NotFoundError(
-      "The column list must include every column of this project exactly once.",
+      "The column list must include every column of this category exactly once.",
     );
   }
 
@@ -71,11 +77,11 @@ export async function reorderColumns(workspaceId: string, projectId: string, col
     ),
   );
 
-  return listColumns(projectId);
+  return listColumns(categoryId);
 }
 
-export async function deleteColumn(workspaceId: string, projectId: string, columnId: string) {
-  await getColumnOrThrow(workspaceId, projectId, columnId);
+export async function deleteColumn(workspaceId: string, categoryId: string, columnId: string) {
+  await getColumnOrThrow(workspaceId, categoryId, columnId);
 
   const taskCount = await prisma.task.count({ where: { columnId } });
   if (taskCount > 0) {

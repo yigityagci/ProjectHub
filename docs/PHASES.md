@@ -476,3 +476,202 @@ Postgres upgrade); the security-advisory/contact-email addresses in
 replaced with a real monitored inbox before an actual public 1.0 release;
 the self-host smoke test is a documented manual checklist, not an
 automated end-to-end (browser-driven) test suite.
+
+## Phase 9 — Categories: a required Project -> Category -> Task isolation tier (implemented)
+
+**Goal:** introduce "Categories" as a new, required sub-division inside
+each Project — its own Kanban board, its own access-control layer,
+mirroring the existing `Project`/`ProjectVisibility`/`ProjectMembership`
+pattern exactly one level down — without disturbing the separate,
+deliberately-unrelated Labels feature.
+
+**This deliberately changes Phase 2's original data model, and that is
+intentional, not an oversight.** Phase 2 gave every `Project` its own
+`BoardColumn`s directly (3 auto-seeded defaults at project-creation time)
+and every `Task` a `projectId`. Phase 9 inserts a new `TaskCategory` layer
+between `Project` and `BoardColumn`/`Task`: a project's board columns and
+tasks now belong to one of the project's categories, not to the project
+directly. `BoardColumn`/`Task` still denormalize `projectId` (and
+`workspaceId`) alongside their new `categoryId`, consistent with this
+codebase's established "denormalize the full parent chain" convention —
+nothing about that convention changed, only where the "leaf" scope sits.
+
+**Product decision, stated plainly: a brand-new project intentionally
+starts with ZERO categories, and this transient zero-category state is a
+deliberate two-step creation UX (Option A), not an oversight or a bug.**
+The project-creation form stays exactly as simple as it was in Phase 2
+(name + visibility only — no category field). Immediately after a
+project is created, the frontend forces the caller through a mandatory
+"create your first category" step (no skip/cancel affordance) before any
+board can be reached. The backend allows `POST .../projects` to succeed
+with zero categories precisely so this two-step flow works; it is only
+the *deletion* side that is protected as a standing invariant (see below)
+— a project that has already reached >= 1 category can never be reduced
+back to 0.
+
+**Delivered:**
+
+- New models `TaskCategory` (`@@map("task_categories")`) and
+  `CategoryMembership` (`@@map("category_memberships")`), and a new
+  `CategoryVisibility` enum (`workspace` / `private`) — deliberately named
+  to avoid any confusion with the pre-existing `ColumnCategory` enum
+  (`BoardColumn`'s todo/in_progress/done classification), which is
+  unrelated. `TaskCategory` denormalizes `workspaceId`+`projectId`;
+  `CategoryMembership` denormalizes `workspaceId`; both mirror
+  `Project`/`ProjectMembership`'s shape field-for-field.
+- `BoardColumn` and `Task` both gained a required `categoryId` FK
+  alongside their existing `projectId`/`workspaceId`. `BoardColumn`'s
+  unique constraint moved from `(projectId, name)` to `(categoryId,
+  name)` — column names are now unique within a category's own board,
+  not project-wide, since a project can have multiple categories each
+  with independent "To Do"/"In Progress"/"Done" columns.
+  `ActivityEvent` gained an optional `categoryId` (null for project-level
+  events with no category in scope, e.g. `milestone_completed`, since
+  milestones remain project-scoped and unaffected by this feature).
+- **Migration/backfill:** this repository already has real, previously
+  committed Prisma migration history (`apps/api/prisma/migrations/`,
+  going back to Phase 1) — there was no "migrations were never generated"
+  situation to work around. The schema change was applied as two ordinary
+  sequential migrations: `20260729120000_add_task_categories_nullable`
+  (new tables/enum + `categoryId` added as a nullable column on
+  `board_columns`/`tasks`/`activity_events`, FKs included) followed by a
+  one-time, idempotent, re-runnable backfill script
+  (`apps/api/prisma/backfill-categories.ts`, `pnpm prisma:backfill-categories`)
+  that creates exactly one bootstrap `TaskCategory` (named after the
+  project's own name) for any *pre-existing* project with zero categories
+  and reassigns its existing columns/tasks to it, and finally
+  `20260729130000_task_categories_required` (makes `categoryId` `NOT
+  NULL` and swaps `board_columns`' unique constraint to `(categoryId,
+  name)`). This bootstrap-category backfill is explicitly NOT the same
+  thing as the "no default category name for new projects" product rule
+  above, which is unaffected and remains true for every project created
+  after this migration.
+- **Guard chain:** a new `requireCategoryAccess` guard
+  (`apps/api/src/rbac/guards.ts`), inserted immediately after
+  `requireProjectAccess` and before any `requirePermission(...)` check, on
+  every category-scoped route. Mirrors `requireProjectAccess` exactly:
+  `workspace`-visible categories are open to anyone who already has
+  project access; `private` categories require a `CategoryMembership` row
+  or a role ranked >= Project Manager; **CLIENT always requires an
+  explicit `CategoryMembership` row regardless of visibility** (this was
+  a deliberate consistency decision — CLIENT already has this
+  "always requires explicit membership" rule for projects, and Categories
+  extends it one level down rather than inventing a different rule).
+  Every denial path is `404`, never `403`, matching every other resource
+  in this codebase.
+- A new `assertNotLastCategory` helper
+  (`apps/api/src/rbac/authorize.ts`), mirroring `assertNotLastOwner`'s
+  exact shape/doc-comment style and race-avoidance requirement (checked
+  live, in the same request as the delete): a project can never be
+  reduced to zero categories via deletion. Category deletion additionally
+  requires the category to have no tasks left in any of its columns
+  (mirrors `columns.service.ts#deleteColumn`'s existing task-count check
+  one level up) — both checks return `409 Conflict` with a clear message.
+- New permission `category.manage`, appended to the permission catalog
+  and granted to Owner (via the existing "Owner gets everything"
+  all-permissions rule)/Admin/Project Manager only — Member/Viewer/Client
+  never get it, matching `board.manage`'s existing grant shape.
+- Routes restructured: the Phase 2 column/task routes moved from
+  `.../projects/:projectId/columns|tasks...` to
+  `.../projects/:projectId/categories/:categoryId/columns|tasks...`
+  (`requireCategoryAccess` added to every preHandler chain; every service
+  call re-scoped to `categoryId`, not just `projectId`, so a task from
+  category A can never be reached via category B's URL even within the
+  same project). Comments/attachments (Phase 4) — being task
+  sub-resources — moved the same way, for the same reason. New category
+  CRUD + membership routes under `.../projects/:projectId/categories`,
+  including a default-column-seeding step (moved out of `createProject`,
+  which no longer creates any `BoardColumn`s directly, and into category
+  creation instead — this is the "no default categories, ever" rule in
+  code: the 3 default columns are still seeded, just one level down, only
+  once a human explicitly names a category).
+- **Real-time:** a new `category:{id}` Socket.IO room
+  (`apps/api/src/realtime/realtime.ts`), joined/left the same way
+  `project:{id}` rooms are. `hasCategoryAccess`
+  (`apps/api/src/realtime/access.ts`) mirrors `hasProjectAccess` exactly
+  (including the CLIENT-always-requires-membership rule) and is used both
+  for room-join authorization and inside `revalidateRoomsForUser`'s
+  existing re-check-every-room loop, so a category membership/visibility
+  change forces immediate eviction from a category room the user can no
+  longer access — exactly like project rooms today. Task/column mutation
+  events (`task.created`/`task.updated`/`task.moved`/`task.deleted`/
+  `board.column.changed`) and task-scoped Phase 4 events
+  (`comment.created`/`comment.deleted`/`attachment.created`/
+  `attachment.deleted`) now broadcast to the category's room ONLY, not
+  also the project's room — a user who can see a project overall but not
+  one of its specific private categories must never receive that
+  category's live events. Category-scoped `activity.created` events
+  (anything with a non-null `categoryId`) follow the same rule; only
+  project-level events (`categoryId` null) still broadcast to the
+  project's room.
+- **Activity feed (Phase 5) visibility fix:**
+  `listActivityEvents` now optionally takes the caller's identity and
+  narrows the feed to events whose `categoryId` is either `null`
+  (project-level) or in the caller's visible-category-id set — computed
+  by a new shared helper, `listVisibleCategoryIdsForUser`
+  (`apps/api/src/projects/categories.service.ts`), reused (not
+  reimplemented) by category listing, activity filtering, and analytics
+  filtering below.
+- **Analytics (Phase 6) visibility fix:** `getProjectAnalytics` stays
+  project-wide (aggregating across every category the caller can see),
+  but its task query — and the raw-SQL "completed over time" query — are
+  both narrowed to only tasks whose `categoryId` is in the same
+  visible-category-id set, so a caller without access to a private
+  category never sees its tasks reflected in totals, workload, status,
+  priority, completion-time, or health-status numbers.
+  `recentActivity` automatically inherits the same filtering by reusing
+  the same fixed `listActivityEvents`.
+- **Search/filter (Phase 7):** no additional change needed beyond the
+  route move itself — `taskListQuerySchema` filters already compose
+  (`AND`) on top of whatever scope the route enforces, and that scope is
+  now `categoryId` instead of `projectId`, the same way it always
+  composed on top of `projectId` before.
+- **Frontend flow:** project creation stays exactly as simple as before;
+  on success the app now forces navigation into a mandatory "create your
+  first category" step (`NewCategoryPage.tsx`, no skip/cancel), which
+  creates the category and navigates directly into its board. Each
+  project card now links to a new category picker (`CategoriesPage.tsx`)
+  instead of a board directly — it lists categories the caller can see
+  (private-category badge, never leaking a private category's existence
+  to a non-member, mirroring how the project list never leaks private
+  projects), with a distinct empty-state message depending on whether the
+  caller could tell the difference safely: a rank-elevated caller (who is
+  guaranteed visibility into every category regardless of privacy, same
+  rule as `requireCategoryAccess`) sees "no categories yet — create the
+  first one" with a working CTA, because for them an empty list
+  unambiguously means zero categories exist; a non-privileged caller
+  (who has no create permission anyway, and for whom an empty list could
+  mean either "zero exist" or "some exist but aren't visible to me") sees
+  a generic, non-leaking "you don't have access to any categories here"
+  message with no action offered. `KanbanBoardPage.tsx` is now
+  category-scoped (`:categoryId` route param, category-scoped
+  endpoints, breadcrumb extended to Workspace / Project / Category /
+  Board, a "Category settings" panel for rename/visibility/member
+  management mirroring the existing inline column-management pattern's
+  tone). Categories are deliberately styled as structural/navigational
+  list/card items (new `.ph-category-list`/`.ph-category-card` CSS,
+  mirroring the project-card list) — never as small colored tags, keeping
+  them visually and conceptually distinct from Labels.
+- Extensive test coverage: every existing test that created tasks/columns
+  directly under a project was updated to create a category first
+  (`test/helpers.ts#createCategoryAs`); a new `test/categories.test.ts`
+  covers CRUD, the last-category and non-empty-category deletion
+  invariants, the zero-category-at-creation-time success path, category
+  membership immediacy, and `category.manage` role-gating;
+  `test/project-access-isolation.test.ts` gained a full private-category
+  IDOR suite (sibling-category member, project-only member, and CLIENT
+  all correctly denied, including via manually-supplied column/task IDs);
+  `test/activity-and-analytics.test.ts` gained explicit leak-proof tests
+  for both the activity feed and analytics filters; `test/realtime-eviction.test.ts`
+  gained a dedicated category-room-scoping test (a socket that loses its
+  `CategoryMembership` stops receiving that category's events immediately,
+  even while still connected to the parent project's room).
+
+**Scaffolded, not exhaustive:** dependencies (`TaskDependency`) remain
+project-scoped, not category-scoped — a task in one category can depend
+on a task in a sibling category of the same project, which was a
+deliberate choice to avoid over-constraining an already-existing Phase 2
+feature that wasn't called out as in-scope for this change. There is no
+bulk "move all tasks from category A to category B" affordance; moving a
+task between categories today would require deleting and recreating it
+(out of scope for this pass).

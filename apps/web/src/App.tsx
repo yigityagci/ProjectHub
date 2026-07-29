@@ -7,6 +7,8 @@ import LoginPage from "./pages/LoginPage.js";
 import WorkspacesPage from "./pages/WorkspacesPage.js";
 import InviteAcceptPage from "./pages/InviteAcceptPage.js";
 import ProjectsPage from "./pages/ProjectsPage.js";
+import CategoriesPage from "./pages/CategoriesPage.js";
+import NewCategoryPage from "./pages/NewCategoryPage.js";
 import KanbanBoardPage from "./pages/KanbanBoardPage.js";
 import AnalyticsPage from "./pages/AnalyticsPage.js";
 
@@ -102,7 +104,15 @@ export default function App() {
         element={user ? <ProjectsPage user={user} /> : <Navigate to="/login" replace />}
       />
       <Route
-        path="/workspace/:workspaceId/projects/:projectId/board"
+        path="/workspace/:workspaceId/projects/:projectId/categories"
+        element={user ? <CategoriesPage user={user} /> : <Navigate to="/login" replace />}
+      />
+      <Route
+        path="/workspace/:workspaceId/projects/:projectId/categories/new"
+        element={user ? <NewCategoryPage user={user} /> : <Navigate to="/login" replace />}
+      />
+      <Route
+        path="/workspace/:workspaceId/projects/:projectId/categories/:categoryId/board"
         element={user ? <KanbanBoardPage user={user} /> : <Navigate to="/login" replace />}
       />
       <Route

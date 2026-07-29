@@ -33,6 +33,9 @@ export const PERMISSIONS = [
   // Observability
   "analytics.view",
   "audit.view",
+
+  // Categories (Project -> Category -> Task isolation tier)
+  "category.manage",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

@@ -1,5 +1,7 @@
+import type { RoleKey } from "@projecthub/shared";
 import { prisma } from "../core/prisma.js";
 import { listActivityEvents } from "../activity/activity.service.js";
+import { listVisibleCategoryIdsForUser } from "../projects/categories.service.js";
 import { computeHealthStatus, type HealthStatusInput } from "./health-status.js";
 
 const COMPLETED_OVER_TIME_WINDOW_DAYS = 30;
@@ -31,11 +33,21 @@ export async function getProjectAnalytics(
   workspaceId: string,
   projectId: string,
   project: ProjectTimelineFields,
+  viewer: { userId: string; roleKey: RoleKey },
 ) {
   const now = new Date();
 
+  // Analytics stay project-wide (aggregating across every category the
+  // caller can see) but the underlying task query is narrowed to only
+  // tasks whose category is in the caller's visible-category set, so a
+  // caller without access to a private category never sees that
+  // category's tasks reflected in totals/workload/status/priority/
+  // completion-time/health-status numbers. Uses the same shared helper as
+  // category listing and activity-feed filtering.
+  const visibleCategoryIds = await listVisibleCategoryIdsForUser(projectId, viewer.userId, viewer.roleKey);
+
   const tasks = await prisma.task.findMany({
-    where: { projectId, workspaceId },
+    where: { projectId, workspaceId, categoryId: { in: visibleCategoryIds } },
     include: {
       column: true,
       assignees: { include: { user: true } },
@@ -131,6 +143,7 @@ export async function getProjectAnalytics(
       SELECT date_trunc('day', "completedAt")::date AS day, COUNT(*) AS count
       FROM tasks
       WHERE "projectId" = ${projectId} AND "completedAt" IS NOT NULL AND "completedAt" >= ${since}
+        AND "categoryId" = ANY(${visibleCategoryIds}::text[])
       GROUP BY date_trunc('day', "completedAt")
     ) t ON t.day = gs
     ORDER BY gs;
@@ -189,7 +202,10 @@ export async function getProjectAnalytics(
   };
   const health = computeHealthStatus(healthInput);
 
-  const recentActivity = await listActivityEvents(projectId, { limit: RECENT_ACTIVITY_LIMIT });
+  // recentActivity automatically inherits the same category-visibility
+  // filtering as the activity feed endpoint (see
+  // activity.service.ts#listActivityEvents), by passing the same viewer.
+  const recentActivity = await listActivityEvents(projectId, { limit: RECENT_ACTIVITY_LIMIT }, viewer);
 
   return {
     totals: {
