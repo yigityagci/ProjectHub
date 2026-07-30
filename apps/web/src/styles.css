@@ -166,6 +166,41 @@
   color-scheme: dark;
 }
 
+/*
+ * Accessibility tab (Settings): "Larger text" bumps the root font-size,
+ * cascading through every rem-based rule in this sheet. "Reduce motion" has
+ * two paths to the exact same rule body, mirroring how the theme system
+ * above layers an explicit choice on top of an OS-level default:
+ *  1. No explicit choice stored -> the `prefers-reduced-motion` media query
+ *     alone decides (matches the OS setting).
+ *  2. An explicit choice IS stored (apps/web/src/lib/a11y.ts sets
+ *     `<html data-reduce-motion="true">`) -> forces it regardless of OS
+ *     setting.
+ */
+:root[data-larger-text="true"] {
+  font-size: 1.15rem;
+}
+
+:root[data-reduce-motion="true"] *,
+:root[data-reduce-motion="true"] *::before,
+:root[data-reduce-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -472,6 +507,16 @@ select:disabled {
   border-left-color: var(--ph-success);
 }
 
+/* Calm, non-alarming informational tone (e.g. the Security tab's "changing
+   your password signs out other sessions" notice) — distinct from both
+   ph-alert-error and ph-alert-success, reusing the existing --ph-warning
+   token rather than introducing a new color variable. */
+.ph-alert-warning {
+  background: rgba(217, 119, 6, 0.1);
+  color: var(--ph-warning);
+  border-left-color: var(--ph-warning);
+}
+
 .ph-link {
   color: var(--ph-primary);
   text-decoration: none;
@@ -662,6 +707,12 @@ select:disabled {
 .ph-badge-private {
   background: rgba(220, 38, 38, 0.12);
   color: var(--ph-error);
+}
+
+/* Sessions tab: marks the row for the session making the current request. */
+.ph-badge-current {
+  background: rgba(var(--ph-primary-rgb), 0.14);
+  color: var(--ph-primary);
 }
 
 /* Priority badges — filled pill, tinted background + matching-hue text

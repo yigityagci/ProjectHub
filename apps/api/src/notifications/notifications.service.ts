@@ -1,4 +1,5 @@
 import type { NotificationType } from "@projecthub/shared";
+import type { Notification } from "@prisma/client";
 import { prisma } from "../core/prisma.js";
 import { NotFoundError } from "../core/errors.js";
 import { emitToUser } from "../realtime/realtime.js";
@@ -9,6 +10,22 @@ export interface CreateNotificationInput {
   type: NotificationType;
   payload?: Record<string, unknown>;
 }
+
+/**
+ * Maps each NotificationType to the User preference column that gates it.
+ * Load-bearing: this is a `Record<NotificationType, ...>`, not a partial map,
+ * so adding a 4th NotificationType fails to compile here until it's wired to
+ * a preference column — a future notification type can never ship silently
+ * un-gate-able.
+ */
+const NOTIFICATION_PREF_FIELD: Record<
+  NotificationType,
+  "notifyOnMention" | "notifyOnTaskAssigned" | "notifyOnCommentReply"
+> = {
+  mention: "notifyOnMention",
+  task_assigned: "notifyOnTaskAssigned",
+  comment_reply: "notifyOnCommentReply",
+};
 
 function serializeNotification(n: {
   id: string;
@@ -33,8 +50,24 @@ function serializeNotification(n: {
  * been persisted) and pushes it live to the recipient's own user-scoped
  * real-time room. Anyone not connected at delivery time picks it up later
  * via GET /api/notifications.
+ *
+ * The recipient's per-type preference gates creation itself (not read-time
+ * filtering): an opted-out notification never becomes a row and never fires
+ * a realtime event, so toggling a preference later never retroactively
+ * rewrites history. Returns null (no row created) when the recipient has
+ * opted out, or doesn't exist (a strict improvement over the previous
+ * behavior, which would FK-violate).
  */
-export async function createNotification(input: CreateNotificationInput) {
+export async function createNotification(input: CreateNotificationInput): Promise<Notification | null> {
+  const recipient = await prisma.user.findUnique({
+    where: { id: input.recipientUserId },
+    select: { notifyOnMention: true, notifyOnTaskAssigned: true, notifyOnCommentReply: true },
+  });
+  if (!recipient) return null;
+
+  const prefField = NOTIFICATION_PREF_FIELD[input.type];
+  if (!recipient[prefField]) return null;
+
   const notification = await prisma.notification.create({
     data: {
       workspaceId: input.workspaceId,

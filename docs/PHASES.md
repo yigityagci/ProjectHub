@@ -721,6 +721,24 @@ type="color">` in the add-column/rename-column forms with a "reset to
 default" clear button; unset falls back to the existing category-based
 default color.
 
+**Settings page (Profile, Account, Notifications, Appearance, Language &
+Region, Security, Sessions, Accessibility, and a permission-gated Manage
+Team tab).** Six new scalar columns on `User` back the three previously
+unbacked tabs (`notifyOnMention`/`notifyOnTaskAssigned`/
+`notifyOnCommentReply`, `locale`, `prefersReducedMotion`/
+`prefersLargerText`) — scalar rather than JSON so a future 4th
+`NotificationType` fails to compile in `notifications.service.ts` until it's
+explicitly gated, mirroring the existing double-enumeration of
+`NotificationType`. Manage Team absorbs `WorkspaceMembersPage.tsx` unchanged
+(now deleted) at `/workspace/:workspaceId/settings/manage-team`.
+Theme/Sessions reuse their existing fully-built systems unchanged. Two
+known limitations: (1) `locale` is persisted (real column, real endpoint,
+real `<select>`) but not yet applied to any UI string — only `"en"` is
+offered today, matching the existing `comment_reply`-not-yet-triggered
+documentation style above; (2) email change (`POST /api/auth/email/change`)
+applies the new address immediately without an ownership-proof email, so a
+typo can lock a user out of password reset.
+
 **Task-completion checkbox with per-column revertible history.** Tasks
 can now be checked off independently of which column they sit in.
 Checking a task sets `Task.completedAt` — the same field `moveTask`

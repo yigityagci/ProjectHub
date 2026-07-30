@@ -133,3 +133,17 @@ export async function revokeAllUserSessions(userId: string): Promise<void> {
     data: { revokedAt: new Date() },
   });
 }
+
+/**
+ * Revokes every other currently-active session for a user, preserving
+ * `keepSessionId`. Used by password/email change (Settings): unlike a
+ * password reset (which revokes everything, since the requester may not be
+ * the account holder), these flows are performed by an already-authenticated
+ * user who should stay logged in on the device they just used.
+ */
+export async function revokeAllUserSessionsExcept(userId: string, keepSessionId: string): Promise<void> {
+  await prisma.session.updateMany({
+    where: { userId, revokedAt: null, id: { not: keepSessionId } },
+    data: { revokedAt: new Date() },
+  });
+}

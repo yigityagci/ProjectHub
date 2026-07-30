@@ -14,6 +14,7 @@ import { AppError } from "./core/errors.js";
 import { registerHealthRoutes } from "./core/health.js";
 import { registerOpenApi } from "./openapi.js";
 import { registerAuthRoutes } from "./auth/auth.routes.js";
+import { registerAccountRoutes } from "./auth/account.routes.js";
 import { registerSetupRoutes } from "./auth/setup.routes.js";
 import { registerWorkspaceRoutes } from "./workspaces/workspaces.routes.js";
 import { registerMemberRoutes } from "./workspaces/members.routes.js";
@@ -118,6 +119,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await registerHealthRoutes(app);
   await registerSetupRoutes(app);
   await registerAuthRoutes(app);
+  await registerAccountRoutes(app);
   await registerWorkspaceRoutes(app);
   await registerMemberRoutes(app);
   await registerInvitationRoutes(app);

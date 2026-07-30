@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { api } from "./lib/api.js";
 import { getSocket, disconnectSocket } from "./lib/socket.js";
+import { applyPreferencesFromServer } from "./lib/a11y.js";
+import type { UserSettings } from "./lib/user-settings.js";
 import SetupPage from "./pages/SetupPage.js";
 import LoginPage from "./pages/LoginPage.js";
 import RegisterPage from "./pages/RegisterPage.js";
@@ -14,13 +16,14 @@ import CategoriesPage from "./pages/CategoriesPage.js";
 import NewCategoryPage from "./pages/NewCategoryPage.js";
 import KanbanBoardPage from "./pages/KanbanBoardPage.js";
 import AnalyticsPage from "./pages/AnalyticsPage.js";
-import WorkspaceMembersPage from "./pages/WorkspaceMembersPage.js";
 import ProjectSettingsPage from "./pages/ProjectSettingsPage.js";
+import SettingsPage from "./pages/settings/SettingsPage.js";
 
 export interface CurrentUser {
   id: string;
   email: string;
   displayName: string;
+  avatarUrl?: string | null;
 }
 
 export function Brand() {
@@ -44,8 +47,17 @@ export default function App() {
         setNeedsSetup(status.needsSetup);
         if (!status.needsSetup) {
           try {
-            const me = await api.get<{ user: CurrentUser }>("/api/auth/me");
-            setUser(me.user);
+            const me = await api.get<{ user: UserSettings }>("/api/auth/me");
+            setUser({
+              id: me.user.id,
+              email: me.user.email,
+              displayName: me.user.displayName,
+              avatarUrl: me.user.avatarUrl,
+            });
+            // DB is the cross-device source of truth; mirror it down into
+            // localStorage right away so it's applied on the very next
+            // pre-paint load (see apps/web/src/lib/a11y.ts).
+            applyPreferencesFromServer(me.user);
           } catch {
             setUser(null);
           }
@@ -115,8 +127,24 @@ export default function App() {
         element={user ? <ProjectsPage user={user} /> : <Navigate to="/login" replace />}
       />
       <Route
-        path="/workspace/:workspaceId/members"
-        element={user ? <WorkspaceMembersPage user={user} /> : <Navigate to="/login" replace />}
+        path="/workspace/:workspaceId/settings"
+        element={
+          user ? (
+            <SettingsPage user={user} onUserUpdated={(u) => setUser(u)} onLoggedOut={() => setUser(null)} />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+      <Route
+        path="/workspace/:workspaceId/settings/:tab"
+        element={
+          user ? (
+            <SettingsPage user={user} onUserUpdated={(u) => setUser(u)} onLoggedOut={() => setUser(null)} />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
       />
       <Route
         path="/workspace/:workspaceId/projects/:projectId/categories"

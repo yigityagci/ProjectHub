@@ -31,7 +31,11 @@ export type AuditAction =
   | "invitation.accepted"
   | "invitation.revoked"
   | "password_reset.requested"
-  | "password_reset.completed";
+  | "password_reset.completed"
+  | "email_change.completed"
+  | "email_change.failed"
+  | "password_change.completed"
+  | "password_change.failed";
 
 export interface RecordAuditEventInput {
   workspaceId?: string | null;

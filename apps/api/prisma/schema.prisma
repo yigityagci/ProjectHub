@@ -98,6 +98,19 @@ model User {
   avatarUrl       String?
   isPlatformAdmin Boolean    @default(false)
   status          UserStatus @default(active)
+  // Settings page preferences (see docs/PHASES.md). Scalar columns rather
+  // than a JSON blob, deliberately: the notification-preference set is
+  // closed and already double-enumerated (NOTIFICATION_TYPES in
+  // packages/shared, and the NotificationType enum below), so a
+  // Record<NotificationType, ...> column map makes forgetting to gate a new
+  // notification type a compile error (see notifications.service.ts),
+  // which a JSON blob could never guarantee.
+  notifyOnMention       Boolean  @default(true)
+  notifyOnTaskAssigned  Boolean  @default(true)
+  notifyOnCommentReply  Boolean  @default(true)
+  locale                String   @default("en")
+  prefersReducedMotion  Boolean  @default(false)
+  prefersLargerText     Boolean  @default(false)
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 

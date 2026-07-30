@@ -32,8 +32,12 @@ import { sendPasswordResetEmail } from "../email/email.service.js";
 import { requireAuth, requireCsrf } from "../rbac/guards.js";
 import { toAuthenticatedUser } from "../rbac/context.js";
 import { NotFoundError } from "../core/errors.js";
+import { serializeUserSettings } from "./account.service.js";
 
-const LOGIN_RATE_LIMIT = {
+// Exported so account.routes.ts (email/password change) can reuse the same
+// rate limit to blunt online guessing of currentPassword from a hijacked
+// session, rather than declaring a second identical constant.
+export const LOGIN_RATE_LIMIT = {
   max: env.RATE_LIMIT_LOGIN_MAX,
   timeWindow: `${env.RATE_LIMIT_LOGIN_WINDOW_MINUTES} minutes`,
 };
@@ -185,7 +189,13 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   );
 
   app.get("/api/auth/me", { preHandler: [requireAuth] }, async (req, reply) => {
-    return reply.send({ user: req.ctx.user });
+    // The base req.ctx.user (from requireAuth) intentionally carries only
+    // AuthenticatedUser's small field set; Settings needs the full row.
+    // Confined to this one route — accepted as negligible extra cost rather
+    // than widening AuthenticatedUser/RequestContext everywhere.
+    const user = await prisma.user.findUnique({ where: { id: req.ctx.user!.id } });
+    if (!user) throw new UnauthorizedError();
+    return reply.send({ user: serializeUserSettings(user) });
   });
 
   app.get("/api/auth/sessions", { preHandler: [requireAuth] }, async (req, reply) => {
@@ -201,7 +211,9 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         userAgent: true,
       },
     });
-    return reply.send({ sessions });
+    return reply.send({
+      sessions: sessions.map((s) => ({ ...s, current: s.id === req.ctx.sessionId })),
+    });
   });
 
   app.post(
@@ -217,6 +229,15 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       }
 
       await revokeSession(session.id);
+
+      // Revoking your own current session is, server-side, indistinguishable
+      // from a manual logout — clear the cookie so this request's response
+      // leaves the browser logged out immediately (the frontend separately
+      // redirects to /login on this same condition).
+      if (session.id === req.ctx.sessionId) {
+        clearSessionCookie(reply);
+      }
+
       await recordAuditEvent({
         actorId: req.ctx.user!.id,
         action: "session.revoked",

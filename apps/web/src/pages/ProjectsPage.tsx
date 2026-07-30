@@ -4,6 +4,7 @@ import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
 import NotificationBell from "../components/NotificationBell.js";
 import ThemeToggle from "../components/ThemeToggle.js";
+import { canAccessManageTeam } from "../lib/workspace-role-gates.js";
 import type { CurrentUser } from "../App.js";
 
 interface Project {
@@ -16,15 +17,6 @@ interface Project {
 }
 
 const CAN_CREATE_PROJECT_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
-
-// Union of WorkspaceMembersPage's three role-gates (CAN_INVITE_ROLES /
-// CAN_MANAGE_ROLES_ROLES / CAN_REMOVE_MEMBER_ROLES) — happens to match
-// CAN_CREATE_PROJECT_ROLES's role set today (OWNER/ADMIN/PROJECT_MANAGER),
-// but is kept as its own named constant since it represents a different
-// permission union (an invite-only PROJECT_MANAGER still needs to reach the
-// members page even though none of the other two workspace-members
-// permissions apply to them).
-const CAN_ACCESS_WORKSPACE_MEMBERS_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
 
 export default function ProjectsPage({ user }: { user: CurrentUser }) {
   const { workspaceId } = useParams<{ workspaceId: string }>();
@@ -119,7 +111,7 @@ export default function ProjectsPage({ user }: { user: CurrentUser }) {
   }
 
   const canCreate = role !== null && CAN_CREATE_PROJECT_ROLES.has(role);
-  const canAccessMembers = role !== null && CAN_ACCESS_WORKSPACE_MEMBERS_ROLES.has(role);
+  const canAccessMembers = canAccessManageTeam(role);
 
   return (
     <div className="ph-shell ph-shell-wide">
@@ -148,7 +140,7 @@ export default function ProjectsPage({ user }: { user: CurrentUser }) {
             <Link
               className="ph-button ph-button-secondary"
               style={{ width: "auto", textDecoration: "none" }}
-              to={`/workspace/${workspaceId}/members`}
+              to={`/workspace/${workspaceId}/settings/manage-team`}
             >
               Manage members
             </Link>

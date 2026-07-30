@@ -59,3 +59,22 @@ export const confirmPasswordResetSchema = z
   })
   .strict();
 export type ConfirmPasswordResetInput = z.infer<typeof confirmPasswordResetSchema>;
+
+export const changeEmailSchema = z
+  .object({
+    // Not passwordSchema: an existing password may predate the current
+    // policy, so re-authentication must not re-validate it against today's
+    // rules (mirrors loginSchema's password field exactly).
+    currentPassword: z.string().min(1),
+    newEmail: emailSchema,
+  })
+  .strict();
+export type ChangeEmailInput = z.infer<typeof changeEmailSchema>;
+
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1),
+    newPassword: passwordSchema,
+  })
+  .strict();
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
