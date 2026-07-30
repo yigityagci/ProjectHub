@@ -307,6 +307,16 @@ select:disabled {
   padding: 2.5rem 1rem;
 }
 
+/* Opt-in modifier for single-card auth-style screens (login, first-run
+ * setup, invite acceptance): centers the card vertically too, not just
+ * horizontally. Deliberately not the `.ph-shell` default — dashboard/list
+ * shells reuse that class with content that can exceed viewport height,
+ * where `justify-content: center` would clip the top of the content when
+ * scrolled instead of just letting it start at the top. */
+.ph-shell-auth {
+  justify-content: center;
+}
+
 .ph-brand {
   display: flex;
   align-items: center;

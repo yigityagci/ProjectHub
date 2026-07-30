@@ -25,7 +25,7 @@ export default function LoginPage({ onLoggedIn }: { onLoggedIn: (user: CurrentUs
   }
 
   return (
-    <div className="ph-shell">
+    <div className="ph-shell ph-shell-auth">
       <Brand />
       <div className="ph-card">
         <h1>Log in</h1>

@@ -29,7 +29,7 @@ export default function SetupPage({ onComplete }: { onComplete: (user: CurrentUs
   }
 
   return (
-    <div className="ph-shell">
+    <div className="ph-shell ph-shell-auth">
       <Brand />
       <div className="ph-card">
         <h1>Create the first administrator account</h1>

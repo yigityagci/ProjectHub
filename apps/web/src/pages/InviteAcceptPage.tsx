@@ -48,7 +48,7 @@ export default function InviteAcceptPage({ user }: { user: CurrentUser | null })
   }
 
   return (
-    <div className="ph-shell">
+    <div className="ph-shell ph-shell-auth">
       <Brand />
       <div className="ph-card">
         <h1>Accept invitation</h1>
