@@ -205,8 +205,42 @@ describe("Project/task/board RBAC (permission enforcement)", () => {
     expect(archiveRes.json().project.archived).toBe(true);
   });
 
+  it("ADMIN can unarchive a previously archived project", async () => {
+    const createRes = await admin.post(`/api/workspaces/${workspaceId}/projects`, {
+      name: "Admin's unarchive project",
+    });
+    expect(createRes.statusCode).toBe(201);
+    const adminProjectId = createRes.json().project.id;
+
+    await admin.post(`/api/workspaces/${workspaceId}/projects/${adminProjectId}/archive`);
+
+    const unarchiveRes = await admin.post(
+      `/api/workspaces/${workspaceId}/projects/${adminProjectId}/unarchive`,
+    );
+    expect(unarchiveRes.statusCode).toBe(200);
+    expect(unarchiveRes.json().project.archived).toBe(false);
+    expect(unarchiveRes.json().project.archivedAt).toBeNull();
+  });
+
   it("PROJECT_MANAGER cannot delete a project (project.delete stays Admin/Owner only)", async () => {
     const res = await pm.delete(`/api/workspaces/${workspaceId}/projects/${projectId}`);
     expect(res.statusCode).toBe(403);
+  });
+
+  it("deletes a project with a category, board column, and task without a 500 (FK-ordering regression)", async () => {
+    const project = await createProjectAs(owner, workspaceId, "Deletable project");
+    const category = await createCategoryAs(owner, workspaceId, project.id, "Default");
+
+    const taskRes = await owner.post(
+      `/api/workspaces/${workspaceId}/projects/${project.id}/categories/${category.id}/tasks`,
+      { title: "Task blocking cascade ordering" },
+    );
+    expect(taskRes.statusCode).toBe(201);
+
+    const deleteRes = await owner.delete(`/api/workspaces/${workspaceId}/projects/${project.id}`);
+    expect(deleteRes.statusCode).toBe(200);
+
+    const getRes = await owner.get(`/api/workspaces/${workspaceId}/projects/${project.id}`);
+    expect(getRes.statusCode).toBe(404);
   });
 });

@@ -27,6 +27,14 @@ interface WorkspaceRosterMember {
   displayName: string;
 }
 
+interface Milestone {
+  id: string;
+  name: string;
+  description: string | null;
+  targetDate: string | null;
+  completedAt: string | null;
+}
+
 // Mirrors CAN_CREATE_PROJECT_ROLES/CAN_MANAGE_BOARD_ROLES's frontend-gating
 // convention (packages/shared/src/roles.ts's `category.manage` grant) —
 // these are UX affordance gates only, the real security boundary is the
@@ -35,6 +43,13 @@ interface WorkspaceRosterMember {
 // (OWNER/ADMIN/PROJECT_MANAGER), so it's reused as-is for the "Project
 // members" panel below rather than declaring an equivalent duplicate.
 const CAN_MANAGE_CATEGORY_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
+
+// Mirrors `milestone.manage`'s grant in DEFAULT_ROLE_PERMISSIONS
+// (OWNER/ADMIN/PROJECT_MANAGER) — UX affordance only, the real boundary is
+// requirePermission("milestone.manage") server-side. Everyone with project
+// access (any role reaching this page at all) can still view the list;
+// this only gates create/complete/delete.
+const CAN_MANAGE_MILESTONES_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
 
 /**
  * Category picker: the project-level landing page a project card now links
@@ -64,6 +79,17 @@ export default function CategoriesPage({ user }: { user: CurrentUser }) {
   const [projectMembersError, setProjectMembersError] = useState<string | null>(null);
   const [selectedNewMemberId, setSelectedNewMemberId] = useState("");
   const [addingMember, setAddingMember] = useState(false);
+
+  // Milestones panel — fetched in its own effect, parallel to categories,
+  // same pattern as the project-members panel above. Visible to anyone with
+  // project access; create/toggle/delete are gated separately below.
+  const [milestones, setMilestones] = useState<Milestone[] | null>(null);
+  const [milestonesError, setMilestonesError] = useState<string | null>(null);
+  const [addingMilestone, setAddingMilestone] = useState(false);
+  const [newMilestoneName, setNewMilestoneName] = useState("");
+  const [newMilestoneDescription, setNewMilestoneDescription] = useState("");
+  const [newMilestoneTargetDate, setNewMilestoneTargetDate] = useState("");
+  const [creatingMilestone, setCreatingMilestone] = useState(false);
 
   async function load() {
     if (!workspaceId || !projectId) return;
@@ -158,6 +184,79 @@ export default function CategoriesPage({ user }: { user: CurrentUser }) {
     }
   }
 
+  async function loadMilestones() {
+    if (!workspaceId || !projectId) return;
+    setMilestonesError(null);
+    try {
+      const res = await api.get<{ milestones: Milestone[] }>(
+        `/api/workspaces/${workspaceId}/projects/${projectId}/milestones`,
+      );
+      setMilestones(res.milestones);
+    } catch (err) {
+      setMilestonesError(err instanceof ApiError ? err.message : "Could not load this project's milestones.");
+      setMilestones([]);
+    }
+  }
+
+  useEffect(() => {
+    loadMilestones().catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId, projectId]);
+
+  const canManageMilestones = role !== null && CAN_MANAGE_MILESTONES_ROLES.has(role);
+
+  async function handleCreateMilestone(e: FormEvent) {
+    e.preventDefault();
+    if (!workspaceId || !projectId) return;
+    const name = newMilestoneName.trim();
+    if (!name) return;
+    setMilestonesError(null);
+    setCreatingMilestone(true);
+    try {
+      await api.post(`/api/workspaces/${workspaceId}/projects/${projectId}/milestones`, {
+        name,
+        ...(newMilestoneDescription.trim() ? { description: newMilestoneDescription.trim() } : {}),
+        ...(newMilestoneTargetDate ? { targetDate: newMilestoneTargetDate } : {}),
+      });
+      setNewMilestoneName("");
+      setNewMilestoneDescription("");
+      setNewMilestoneTargetDate("");
+      setAddingMilestone(false);
+      await loadMilestones();
+    } catch (err) {
+      setMilestonesError(err instanceof ApiError ? err.message : "Could not create this milestone.");
+    } finally {
+      setCreatingMilestone(false);
+    }
+  }
+
+  async function handleToggleMilestone(milestone: Milestone) {
+    if (!workspaceId || !projectId) return;
+    setMilestonesError(null);
+    try {
+      const res = await api.patch<{ milestone: Milestone }>(
+        `/api/workspaces/${workspaceId}/projects/${projectId}/milestones/${milestone.id}`,
+        { completedAt: milestone.completedAt ? null : new Date().toISOString() },
+      );
+      setMilestones((prev) =>
+        (prev ?? []).map((m) => (m.id === milestone.id ? res.milestone : m)),
+      );
+    } catch (err) {
+      setMilestonesError(err instanceof ApiError ? err.message : "Could not update this milestone.");
+    }
+  }
+
+  async function handleDeleteMilestone(milestoneId: string) {
+    if (!workspaceId || !projectId) return;
+    setMilestonesError(null);
+    try {
+      await api.delete(`/api/workspaces/${workspaceId}/projects/${projectId}/milestones/${milestoneId}`);
+      setMilestones((prev) => (prev ?? []).filter((m) => m.id !== milestoneId));
+    } catch (err) {
+      setMilestonesError(err instanceof ApiError ? err.message : "Could not delete this milestone.");
+    }
+  }
+
   const addableRosterMembers = workspaceRoster.filter(
     (m) => !(projectMembers ?? []).some((pm) => pm.userId === m.userId),
   );
@@ -213,6 +312,18 @@ export default function CategoriesPage({ user }: { user: CurrentUser }) {
               Each category is its own working board within {projectName || "this project"}.
             </p>
           </div>
+          {/* canManageCategories also mirrors project.edit's grant (same
+              OWNER/ADMIN/PROJECT_MANAGER set as category.manage), so it is
+              reused here rather than declaring an equivalent duplicate. */}
+          {canManageCategories && (
+            <Link
+              className="ph-button ph-button-secondary"
+              style={{ width: "auto", textDecoration: "none" }}
+              to={`/workspace/${workspaceId}/projects/${projectId}/settings`}
+            >
+              Settings
+            </Link>
+          )}
         </div>
 
         {showProjectMembersPanel && (
@@ -270,6 +381,119 @@ export default function CategoriesPage({ user }: { user: CurrentUser }) {
             </form>
           </div>
         )}
+
+        <div className="ph-card ph-card-wide" style={{ marginBottom: "1.5rem" }}>
+          <h1 style={{ fontSize: "1rem" }}>Milestones</h1>
+          {milestonesError && <div className="ph-alert ph-alert-error">{milestonesError}</div>}
+          {milestones === null ? (
+            <p>Loading...</p>
+          ) : milestones.length === 0 ? (
+            <div className="ph-empty-state">No milestones yet.</div>
+          ) : (
+            <ul className="ph-assignee-list">
+              {milestones.map((m) => (
+                <li key={m.id}>
+                  <label
+                    className="ph-task-complete-toggle"
+                    style={{ margin: 0, flex: 1, minWidth: 0 }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={Boolean(m.completedAt)}
+                      disabled={!canManageMilestones}
+                      onChange={() => handleToggleMilestone(m)}
+                      aria-label={m.completedAt ? "Mark milestone as not done" : "Mark milestone as done"}
+                    />
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.1rem", minWidth: 0 }}>
+                      <span className="truncate" title={m.name}>
+                        {m.name}
+                      </span>
+                      <span style={{ fontSize: "0.78rem", color: "var(--ph-muted)" }}>
+                        {m.targetDate ? `Due ${new Date(m.targetDate).toLocaleDateString()}` : "No target date"}
+                        {m.completedAt ? ` · Completed ${new Date(m.completedAt).toLocaleDateString()}` : ""}
+                      </span>
+                    </div>
+                  </label>
+                  {canManageMilestones && (
+                    <button
+                      type="button"
+                      className="ph-remove-btn"
+                      onClick={() => handleDeleteMilestone(m.id)}
+                    >
+                      Delete
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {canManageMilestones &&
+            (addingMilestone ? (
+              <form
+                className="ph-inline-form"
+                style={{ marginTop: "0.75rem", flexWrap: "wrap" }}
+                onSubmit={handleCreateMilestone}
+              >
+                <div className="ph-field">
+                  <label htmlFor="newMilestoneName">Name</label>
+                  <input
+                    id="newMilestoneName"
+                    value={newMilestoneName}
+                    onChange={(e) => setNewMilestoneName(e.target.value)}
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div className="ph-field">
+                  <label htmlFor="newMilestoneDescription">Description (optional)</label>
+                  <input
+                    id="newMilestoneDescription"
+                    value={newMilestoneDescription}
+                    onChange={(e) => setNewMilestoneDescription(e.target.value)}
+                  />
+                </div>
+                <div className="ph-field">
+                  <label htmlFor="newMilestoneTargetDate">Target date (optional)</label>
+                  <input
+                    id="newMilestoneTargetDate"
+                    type="date"
+                    value={newMilestoneTargetDate}
+                    onChange={(e) => setNewMilestoneTargetDate(e.target.value)}
+                  />
+                </div>
+                <button
+                  className="ph-button"
+                  type="submit"
+                  disabled={creatingMilestone || !newMilestoneName.trim()}
+                >
+                  {creatingMilestone ? "Adding..." : "Add milestone"}
+                </button>
+                <button
+                  type="button"
+                  className="ph-button ph-button-secondary"
+                  onClick={() => {
+                    setAddingMilestone(false);
+                    setNewMilestoneName("");
+                    setNewMilestoneDescription("");
+                    setNewMilestoneTargetDate("");
+                  }}
+                >
+                  Cancel
+                </button>
+              </form>
+            ) : (
+              <button
+                type="button"
+                className="ph-button ph-button-secondary"
+                style={{ marginTop: "0.75rem", width: "auto" }}
+                onClick={() => setAddingMilestone(true)}
+              >
+                <IconPlus size={15} />
+                Add milestone
+              </button>
+            ))}
+        </div>
 
         {categories === null ? (
           <p>Loading...</p>

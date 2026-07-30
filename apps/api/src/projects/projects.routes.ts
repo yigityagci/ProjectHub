@@ -19,6 +19,7 @@ import {
   listProjectsForUser,
   updateProject,
   archiveProject,
+  unarchiveProject,
   deleteProject,
   listProjectMembers,
   addProjectMember,
@@ -142,6 +143,23 @@ export async function registerProjectRoutes(app: FastifyInstance): Promise<void>
     },
     async (req, reply) => {
       const updated = await archiveProject(req.ctx.project!.id);
+      return reply.send({ project: serializeProject(updated) });
+    },
+  );
+
+  app.post(
+    "/api/workspaces/:workspaceId/projects/:projectId/unarchive",
+    {
+      preHandler: [
+        requireAuth,
+        requireCsrf,
+        requireMembership,
+        requireProjectAccess,
+        requirePermission("project.archive"),
+      ],
+    },
+    async (req, reply) => {
+      const updated = await unarchiveProject(req.ctx.project!.id);
       return reply.send({ project: serializeProject(updated) });
     },
   );

@@ -38,6 +38,13 @@ const CAN_INVITE_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
 const CAN_MANAGE_ROLES_ROLES = new Set(["OWNER", "ADMIN"]);
 const CAN_REMOVE_MEMBER_ROLES = new Set(["OWNER", "ADMIN"]);
 
+// Mirrors `workspace.settings.manage`'s grant in DEFAULT_ROLE_PERMISSIONS
+// (OWNER/ADMIN only — PROJECT_MANAGER does not have it) — UX affordance
+// only, the real boundary is requirePermission("workspace.settings.manage")
+// server-side. Kept separate from CAN_MANAGE_ROLES_ROLES even though the
+// role sets are identical today, since they mirror different permissions.
+const CAN_MANAGE_WORKSPACE_SETTINGS_ROLES = new Set(["OWNER", "ADMIN"]);
+
 /** Roles the caller (holding `ownRoleKey`) may assign to someone else —
  * soft-filters `<select>` options to the caller's own rank or below, mirroring
  * assertCanAssignRole's server-side invariant (the server remains the
@@ -59,6 +66,11 @@ export default function WorkspaceMembersPage({ user }: { user: CurrentUser }) {
   const [workspaceName, setWorkspaceName] = useState("");
   const [role, setRole] = useState<string | null>(null);
 
+  const [renameName, setRenameName] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [renameSuccess, setRenameSuccess] = useState<string | null>(null);
+
   const [members, setMembers] = useState<Member[] | null>(null);
   const [membersError, setMembersError] = useState<string | null>(null);
 
@@ -79,6 +91,7 @@ export default function WorkspaceMembersPage({ user }: { user: CurrentUser }) {
       );
       setWorkspaceName(ws.workspace.name);
       setRole(ws.role);
+      setRenameName(ws.workspace.name);
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
         navigate("/");
@@ -134,6 +147,27 @@ export default function WorkspaceMembersPage({ user }: { user: CurrentUser }) {
   const canManageRoles = role !== null && CAN_MANAGE_ROLES_ROLES.has(role);
   const canRemoveMember = role !== null && CAN_REMOVE_MEMBER_ROLES.has(role);
   const canRevokeInvitation = canInvite || canManageRoles;
+  const canManageWorkspaceSettings = role !== null && CAN_MANAGE_WORKSPACE_SETTINGS_ROLES.has(role);
+
+  async function handleRename(e: FormEvent) {
+    e.preventDefault();
+    if (!workspaceId) return;
+    setRenameError(null);
+    setRenameSuccess(null);
+    setRenaming(true);
+    try {
+      const res = await api.patch<{ workspace: { name: string } }>(`/api/workspaces/${workspaceId}`, {
+        name: renameName,
+      });
+      setWorkspaceName(res.workspace.name);
+      setRenameName(res.workspace.name);
+      setRenameSuccess("Workspace renamed.");
+    } catch (err) {
+      setRenameError(err instanceof ApiError ? err.message : "Could not rename this workspace.");
+    } finally {
+      setRenaming(false);
+    }
+  }
 
   const ownerCount = (members ?? []).filter((m) => m.role === "OWNER").length;
   const roleOptions = assignableRoles(role);
@@ -224,6 +258,32 @@ export default function WorkspaceMembersPage({ user }: { user: CurrentUser }) {
             </p>
           </div>
         </div>
+
+        {canManageWorkspaceSettings && (
+          <div className="ph-card ph-card-wide" style={{ marginBottom: "1.5rem" }}>
+            <h1 style={{ fontSize: "1rem" }}>Workspace settings</h1>
+            {renameError && <div className="ph-alert ph-alert-error">{renameError}</div>}
+            {renameSuccess && <div className="ph-alert ph-alert-success">{renameSuccess}</div>}
+            <form onSubmit={handleRename}>
+              <div className="ph-field">
+                <label htmlFor="workspaceName">Workspace name</label>
+                <input
+                  id="workspaceName"
+                  value={renameName}
+                  onChange={(e) => setRenameName(e.target.value)}
+                  required
+                />
+              </div>
+              <button
+                className="ph-button"
+                type="submit"
+                disabled={renaming || !renameName.trim() || renameName.trim() === workspaceName}
+              >
+                {renaming ? "Saving..." : "Save name"}
+              </button>
+            </form>
+          </div>
+        )}
 
         <div className="ph-card ph-card-wide">
           <h1 style={{ fontSize: "1rem" }}>Active members</h1>

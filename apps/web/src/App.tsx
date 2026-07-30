@@ -15,6 +15,7 @@ import NewCategoryPage from "./pages/NewCategoryPage.js";
 import KanbanBoardPage from "./pages/KanbanBoardPage.js";
 import AnalyticsPage from "./pages/AnalyticsPage.js";
 import WorkspaceMembersPage from "./pages/WorkspaceMembersPage.js";
+import ProjectSettingsPage from "./pages/ProjectSettingsPage.js";
 
 export interface CurrentUser {
   id: string;
@@ -120,6 +121,10 @@ export default function App() {
       <Route
         path="/workspace/:workspaceId/projects/:projectId/categories"
         element={user ? <CategoriesPage user={user} /> : <Navigate to="/login" replace />}
+      />
+      <Route
+        path="/workspace/:workspaceId/projects/:projectId/settings"
+        element={user ? <ProjectSettingsPage user={user} /> : <Navigate to="/login" replace />}
       />
       <Route
         path="/workspace/:workspaceId/projects/:projectId/categories/new"

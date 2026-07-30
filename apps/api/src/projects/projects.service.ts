@@ -128,8 +128,30 @@ export async function archiveProject(projectId: string) {
   });
 }
 
+export async function unarchiveProject(projectId: string) {
+  return prisma.project.update({
+    where: { id: projectId },
+    data: { archived: false, archivedAt: null },
+  });
+}
+
+/**
+ * A bare `project.delete` would let Postgres cascade-delete this project's
+ * BoardColumn/TaskCategory rows and its Task rows as sibling cascades from
+ * the same parent delete, in unspecified order. Task.taskCategory/Task.column
+ * are `onDelete: Restrict` (not Cascade) — if a BoardColumn or TaskCategory
+ * cascade fires before its still-referencing Task rows are gone, Postgres
+ * raises a foreign key violation and the whole delete 500s. Deleting every
+ * Task row first (in the same transaction) clears those RESTRICT blockers up
+ * front, so the subsequent project delete's remaining cascades (BoardColumn,
+ * TaskCategory, Milestone, Label, ProjectMembership, ActivityEvent, ...) can
+ * proceed in any order.
+ */
 export async function deleteProject(projectId: string) {
-  await prisma.project.delete({ where: { id: projectId } });
+  await prisma.$transaction([
+    prisma.task.deleteMany({ where: { projectId } }),
+    prisma.project.delete({ where: { id: projectId } }),
+  ]);
 }
 
 export async function listProjectMembers(projectId: string) {
