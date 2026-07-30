@@ -1,7 +1,13 @@
 import type { FastifyInstance } from "fastify";
-import { registerSchema, loginSchema } from "@projecthub/shared";
+import {
+  registerSchema,
+  loginSchema,
+  requestPasswordResetSchema,
+  confirmPasswordResetSchema,
+} from "@projecthub/shared";
 import { env } from "../config/env.js";
 import { prisma } from "../core/prisma.js";
+import { logger } from "../core/logger.js";
 import { ValidationError, UnauthorizedError } from "../core/errors.js";
 import { recordAuditEvent } from "../audit/audit.service.js";
 import {
@@ -17,6 +23,12 @@ import {
   clearSessionCookie,
   revokeSession,
 } from "./session.js";
+import {
+  issuePasswordResetToken,
+  consumePasswordResetToken,
+  buildPasswordResetLink,
+} from "./password-reset.service.js";
+import { sendPasswordResetEmail } from "../email/email.service.js";
 import { requireAuth, requireCsrf } from "../rbac/guards.js";
 import { toAuthenticatedUser } from "../rbac/context.js";
 import { NotFoundError } from "../core/errors.js";
@@ -24,6 +36,11 @@ import { NotFoundError } from "../core/errors.js";
 const LOGIN_RATE_LIMIT = {
   max: env.RATE_LIMIT_LOGIN_MAX,
   timeWindow: `${env.RATE_LIMIT_LOGIN_WINDOW_MINUTES} minutes`,
+};
+
+const PASSWORD_RESET_RATE_LIMIT = {
+  max: env.RATE_LIMIT_PASSWORD_RESET_MAX,
+  timeWindow: `${env.RATE_LIMIT_PASSWORD_RESET_WINDOW_MINUTES} minutes`,
 };
 
 export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
@@ -87,6 +104,71 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       });
 
       return reply.send({ user: toAuthenticatedUser(user) });
+    },
+  );
+
+  app.post(
+    "/api/auth/password-reset/request",
+    { config: { rateLimit: PASSWORD_RESET_RATE_LIMIT } },
+    async (req, reply) => {
+      const parsed = requestPasswordResetSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new ValidationError(parsed.error.issues[0]?.message ?? "Invalid input.");
+      }
+      const { email } = parsed.data;
+
+      const rawToken = await issuePasswordResetToken(email);
+
+      if (rawToken) {
+        const resetLink = buildPasswordResetLink(rawToken);
+        // Fire-and-forget: response latency must stay constant regardless
+        // of whether an account exists, so the caller never awaits mail
+        // delivery before responding (the anti-enumeration timing control).
+        void sendPasswordResetEmail({
+          recipientEmail: email,
+          resetLink,
+          ttlHours: env.PASSWORD_RESET_TTL_HOURS,
+        }).catch((err) => {
+          logger.error({ err }, "Failed to send password reset email");
+        });
+
+        const user = await findUserByEmail(email);
+        // Only audit when a real user was matched, so the audit log
+        // itself doesn't become an enumeration oracle.
+        await recordAuditEvent({
+          actorId: user?.id ?? null,
+          action: "password_reset.requested",
+          ip: req.ip,
+          userAgent: req.headers["user-agent"] ?? null,
+        });
+      }
+
+      // Always return the same generic response, whether or not the email
+      // matched a user — this is the primary anti-enumeration control.
+      return reply.send({ ok: true });
+    },
+  );
+
+  app.post(
+    "/api/auth/password-reset/confirm",
+    { config: { rateLimit: PASSWORD_RESET_RATE_LIMIT } },
+    async (req, reply) => {
+      const parsed = confirmPasswordResetSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new ValidationError(parsed.error.issues[0]?.message ?? "Invalid input.");
+      }
+      const { token, password } = parsed.data;
+
+      const { userId } = await consumePasswordResetToken({ rawToken: token, newPassword: password });
+
+      await recordAuditEvent({
+        actorId: userId,
+        action: "password_reset.completed",
+        ip: req.ip,
+        userAgent: req.headers["user-agent"] ?? null,
+      });
+
+      return reply.send({ ok: true });
     },
   );
 

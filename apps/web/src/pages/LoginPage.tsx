@@ -61,6 +61,11 @@ export default function LoginPage({ onLoggedIn }: { onLoggedIn: (user: CurrentUs
             Have an invitation link? Paste its token here
           </Link>
         </p>
+        <p>
+          <Link className="ph-link" to="/forgot-password">
+            Forgot password?
+          </Link>
+        </p>
       </div>
     </div>
   );

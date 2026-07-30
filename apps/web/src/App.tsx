@@ -6,6 +6,8 @@ import SetupPage from "./pages/SetupPage.js";
 import LoginPage from "./pages/LoginPage.js";
 import WorkspacesPage from "./pages/WorkspacesPage.js";
 import InviteAcceptPage from "./pages/InviteAcceptPage.js";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage.js";
+import ResetPasswordPage from "./pages/ResetPasswordPage.js";
 import ProjectsPage from "./pages/ProjectsPage.js";
 import CategoriesPage from "./pages/CategoriesPage.js";
 import NewCategoryPage from "./pages/NewCategoryPage.js";
@@ -99,6 +101,8 @@ export default function App() {
         }
       />
       <Route path="/invite/accept" element={<InviteAcceptPage user={user} />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route
         path="/workspace/:workspaceId/projects"
         element={user ? <ProjectsPage user={user} /> : <Navigate to="/login" replace />}

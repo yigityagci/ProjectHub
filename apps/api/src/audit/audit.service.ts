@@ -29,7 +29,9 @@ export type AuditAction =
   | "workspace.settings.updated"
   | "session.revoked"
   | "invitation.accepted"
-  | "invitation.revoked";
+  | "invitation.revoked"
+  | "password_reset.requested"
+  | "password_reset.completed";
 
 export interface RecordAuditEventInput {
   workspaceId?: string | null;

@@ -26,6 +26,12 @@ const envSchema = z
     RATE_LIMIT_GLOBAL_MAX: z.coerce.number().positive().default(300),
     RATE_LIMIT_GLOBAL_WINDOW_MINUTES: z.coerce.number().positive().default(1),
     INVITE_TTL_HOURS: z.coerce.number().positive().default(24 * 7),
+    // Password reset links are a bearer credential to full account
+    // takeover if leaked, so their TTL is deliberately much shorter than
+    // an invitation's.
+    PASSWORD_RESET_TTL_HOURS: z.coerce.number().positive().default(1),
+    RATE_LIMIT_PASSWORD_RESET_MAX: z.coerce.number().positive().default(5),
+    RATE_LIMIT_PASSWORD_RESET_WINDOW_MINUTES: z.coerce.number().positive().default(15),
     ARGON2_MEMORY_COST_KIB: z.coerce.number().positive().default(19456),
     ARGON2_TIME_COST: z.coerce.number().positive().default(2),
     ARGON2_PARALLELISM: z.coerce.number().positive().default(1),

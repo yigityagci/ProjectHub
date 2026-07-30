@@ -38,7 +38,7 @@ half-working instance.
 | `ARGON2_MEMORY_COST_KIB` / `ARGON2_TIME_COST` / `ARGON2_PARALLELISM` | Password hashing cost. The `.env.example` defaults are reasonable for a small VPS; raise `ARGON2_MEMORY_COST_KIB` if your server has memory to spare and you want stronger hashing. |
 | `UPLOAD_DIR` | Where the local-disk `StorageProvider` (Phase 4) writes attachments - must match the `uploads` volume mount in `docker-compose.yml` (it does, by default). |
 | `UPLOAD_MAX_SIZE_BYTES` | Max attachment size, enforced by `@fastify/multipart` (default 25 MB). |
-| `SMTP_URL` / `SMTP_FROM` | Optional. If unset, invitation emails are logged to the API's console instead of sent - fine for evaluation, not for real onboarding of real users who won't have console access. |
+| `SMTP_URL` / `SMTP_FROM` | Optional. Accepts a standard nodemailer connection string (e.g. `smtp://user:pass@host:587`); when set, both invitation emails and password-reset emails are sent through it. If unset, those emails are logged to the API's console instead of sent - fine for evaluation, not for real onboarding of real users who won't have console access. |
 
 Redis (`REDIS_URL`) needs no additional configuration beyond what's already
 in `docker-compose.yml` - it's used for rate limiting, sessions-adjacent

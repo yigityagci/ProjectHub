@@ -120,3 +120,16 @@ export async function revokeSession(sessionId: string): Promise<void> {
     data: { revokedAt: new Date() },
   });
 }
+
+/**
+ * Revokes every currently-active session for a user. Used by the password
+ * reset flow: once a password is reset, every existing logged-in session
+ * (which may have been established with the now-replaced password, or by
+ * an attacker who had compromised the old one) is invalidated.
+ */
+export async function revokeAllUserSessions(userId: string): Promise<void> {
+  await prisma.session.updateMany({
+    where: { userId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+}

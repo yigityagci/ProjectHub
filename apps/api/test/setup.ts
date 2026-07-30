@@ -27,6 +27,11 @@ process.env.RATE_LIMIT_LOGIN_MAX ??= "100000";
 process.env.RATE_LIMIT_LOGIN_WINDOW_MINUTES ??= "15";
 process.env.RATE_LIMIT_GLOBAL_MAX ??= "1000000";
 process.env.RATE_LIMIT_GLOBAL_WINDOW_MINUTES ??= "1";
+// Same rationale as RATE_LIMIT_LOGIN_MAX above: a high default so ordinary
+// tests exercising the password-reset request endpoint repeatedly never
+// trip its dedicated rate limiter.
+process.env.RATE_LIMIT_PASSWORD_RESET_MAX ??= "100000";
+process.env.RATE_LIMIT_PASSWORD_RESET_WINDOW_MINUTES ??= "15";
 // Phase 4 uploads: a small limit keeps the oversized-upload test cheap (no
 // need to allocate a real 25MB buffer), and a dedicated directory keeps
 // test-run files out of the real dev `uploads/` folder.

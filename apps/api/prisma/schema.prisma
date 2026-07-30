@@ -102,6 +102,7 @@ model User {
   updatedAt       DateTime   @updatedAt
 
   sessions            Session[]
+  passwordResetTokens PasswordResetToken[]
   ownedWorkspaces     Workspace[]           @relation("WorkspaceOwner")
   memberships         WorkspaceMembership[]
   sentInvitations     Invitation[]          @relation("InvitationInvitedBy")
@@ -139,6 +140,26 @@ model Session {
   @@index([userId])
   @@index([expiresAt])
   @@map("sessions")
+}
+
+// Self-service password reset. A raw token is emailed to the user (never
+// stored); only its sha256 hash is persisted, mirroring the Session /
+// Invitation token pattern (see session.ts#hashToken,
+// invitations.service.ts). Single-use (`usedAt`) and short-lived
+// (`expiresAt`, PASSWORD_RESET_TTL_HOURS — much shorter than an
+// invitation's, since this token is a bearer credential to full account
+// takeover if leaked).
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 model Workspace {

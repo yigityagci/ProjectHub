@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+env:
+  NODE_ENV: test
+  PORT: 4000
+  APP_URL: http://localhost:4000
+  WEB_URL: http://localhost:5173
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/projecthub_test
+  REDIS_URL: redis://localhost:6379
+  # >= 32 chars, matching env.ts's Zod validation (not a real secret).
+  APP_SECRET: ci-only-secret-value-not-for-production-use-1234567890
+  SESSION_TTL_HOURS: 24
+  SESSION_ABSOLUTE_TTL_HOURS: 720
+  COOKIE_SECURE: "false"
+  CORS_ORIGIN: http://localhost:5173
+  INVITE_TTL_HOURS: 168
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: projecthub_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d projecthub_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter @projecthub/api run prisma:generate
+
+      - name: Run Prisma migrations
+        run: pnpm --filter @projecthub/api run prisma:migrate:deploy
+
+      - name: Run API test suite
+        run: pnpm --filter @projecthub/api run test
+
+      - name: Type-check API
+        run: pnpm --filter @projecthub/api run lint
+
+      - name: Type-check and build web
+        run: pnpm --filter @projecthub/web run build

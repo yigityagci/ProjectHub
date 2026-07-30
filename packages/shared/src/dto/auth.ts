@@ -44,3 +44,18 @@ export const setupSchema = z
   })
   .strict();
 export type SetupInput = z.infer<typeof setupSchema>;
+
+export const requestPasswordResetSchema = z
+  .object({
+    email: emailSchema,
+  })
+  .strict();
+export type RequestPasswordResetInput = z.infer<typeof requestPasswordResetSchema>;
+
+export const confirmPasswordResetSchema = z
+  .object({
+    token: z.string().min(1),
+    password: passwordSchema,
+  })
+  .strict();
+export type ConfirmPasswordResetInput = z.infer<typeof confirmPasswordResetSchema>;
