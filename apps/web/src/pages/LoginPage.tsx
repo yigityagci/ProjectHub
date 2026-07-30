@@ -1,10 +1,14 @@
 import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
 import type { CurrentUser } from "../App.js";
 
 export default function LoginPage({ onLoggedIn }: { onLoggedIn: (user: CurrentUser) => void }) {
+  const [searchParams] = useSearchParams();
+  const redirect = searchParams.get("redirect");
+  const navigate = useNavigate();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -17,6 +21,10 @@ export default function LoginPage({ onLoggedIn }: { onLoggedIn: (user: CurrentUs
     try {
       const res = await api.post<{ user: CurrentUser }>("/api/auth/login", { email, password });
       onLoggedIn(res.user);
+      // If we arrived here via a redirect round trip (e.g. from an invite
+      // link for a not-yet-logged-in user), send them onward to it instead
+      // of the default post-login destination.
+      if (redirect) navigate(redirect);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong.");
     } finally {
@@ -64,6 +72,14 @@ export default function LoginPage({ onLoggedIn }: { onLoggedIn: (user: CurrentUs
         <p>
           <Link className="ph-link" to="/forgot-password">
             Forgot password?
+          </Link>
+        </p>
+        <p>
+          <Link
+            className="ph-link"
+            to={redirect ? `/register?redirect=${encodeURIComponent(redirect)}` : "/register"}
+          >
+            Don't have an account? Register
           </Link>
         </p>
       </div>

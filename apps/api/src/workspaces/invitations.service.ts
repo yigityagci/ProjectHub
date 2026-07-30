@@ -169,6 +169,30 @@ export async function acceptInvitation(input: AcceptInvitationInput) {
   });
 }
 
+/**
+ * Lists only *pending* invitations for a workspace (accepted/revoked/expired
+ * ones are excluded — those are historical, not actionable from this list).
+ * Ordered newest-first so a manager sees the invitations they just sent at
+ * the top.
+ */
+export async function listWorkspaceInvitations(workspaceId: string) {
+  const invitations = await prisma.invitation.findMany({
+    where: { workspaceId, status: "pending" },
+    include: { role: true },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return invitations.map((invitation) => ({
+    id: invitation.id,
+    email: invitation.email,
+    roleKey: invitation.role.key,
+    roleName: invitation.role.name,
+    status: invitation.status,
+    expiresAt: invitation.expiresAt,
+    createdAt: invitation.createdAt,
+  }));
+}
+
 export async function revokeInvitation(workspaceId: string, invitationId: string) {
   const invitation = await prisma.invitation.findUnique({ where: { id: invitationId } });
   if (!invitation || invitation.workspaceId !== workspaceId) {

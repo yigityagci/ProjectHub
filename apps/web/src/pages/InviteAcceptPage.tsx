@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
 import type { CurrentUser } from "../App.js";
@@ -16,6 +16,12 @@ export default function InviteAcceptPage({ user }: { user: CurrentUser | null })
   const [tokenInput, setTokenInput] = useState(searchParams.get("token") ?? "");
   const token = searchParams.get("token") ?? tokenInput;
   const navigate = useNavigate();
+
+  // Round-trip target for an invited-but-not-logged-in user: carried
+  // through /login or /register as a `redirect` query param (same "token"
+  // param name this page itself reads its invite token from) so they land
+  // back on this exact invite/accept link once authenticated.
+  const redirectTarget = `/invite/accept?token=${encodeURIComponent(token)}`;
 
   const [preview, setPreview] = useState<InvitationPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -78,8 +84,15 @@ export default function InviteAcceptPage({ user }: { user: CurrentUser | null })
               </button>
             ) : (
               <p className="ph-subtitle">
-                Please log in or register with <strong>{preview.email}</strong> first, then
-                return to this link to accept.
+                Please{" "}
+                <Link className="ph-link" to={`/login?redirect=${encodeURIComponent(redirectTarget)}`}>
+                  log in
+                </Link>{" "}
+                or{" "}
+                <Link className="ph-link" to={`/register?redirect=${encodeURIComponent(redirectTarget)}`}>
+                  register
+                </Link>{" "}
+                with <strong>{preview.email}</strong> first, then you'll be returned here to accept.
               </p>
             )}
           </>

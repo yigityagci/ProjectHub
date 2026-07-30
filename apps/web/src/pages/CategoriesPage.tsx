@@ -14,10 +14,26 @@ interface Category {
   visibility: "workspace" | "private";
 }
 
+interface ProjectMember {
+  userId: string;
+  email: string;
+  displayName: string;
+  addedAt: string;
+}
+
+interface WorkspaceRosterMember {
+  userId: string;
+  email: string;
+  displayName: string;
+}
+
 // Mirrors CAN_CREATE_PROJECT_ROLES/CAN_MANAGE_BOARD_ROLES's frontend-gating
 // convention (packages/shared/src/roles.ts's `category.manage` grant) —
 // these are UX affordance gates only, the real security boundary is the
-// backend guard chain (requireCategoryAccess + requirePermission).
+// backend guard chain (requireCategoryAccess + requirePermission). This
+// same role set also happens to match `project.members.manage`'s grantees
+// (OWNER/ADMIN/PROJECT_MANAGER), so it's reused as-is for the "Project
+// members" panel below rather than declaring an equivalent duplicate.
 const CAN_MANAGE_CATEGORY_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
 
 /**
@@ -32,6 +48,7 @@ export default function CategoriesPage({ user }: { user: CurrentUser }) {
   const navigate = useNavigate();
 
   const [projectName, setProjectName] = useState("");
+  const [projectVisibility, setProjectVisibility] = useState<"workspace" | "private" | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[] | null>(null);
   const [creating, setCreating] = useState(false);
@@ -40,16 +57,25 @@ export default function CategoriesPage({ user }: { user: CurrentUser }) {
   const [newCategoryVisibility, setNewCategoryVisibility] = useState<"workspace" | "private">("workspace");
   const [error, setError] = useState<string | null>(null);
 
+  // Project members panel (private projects only, managers only) — see
+  // below near the JSX render for the visibility+permission gate.
+  const [projectMembers, setProjectMembers] = useState<ProjectMember[] | null>(null);
+  const [workspaceRoster, setWorkspaceRoster] = useState<WorkspaceRosterMember[]>([]);
+  const [projectMembersError, setProjectMembersError] = useState<string | null>(null);
+  const [selectedNewMemberId, setSelectedNewMemberId] = useState("");
+  const [addingMember, setAddingMember] = useState(false);
+
   async function load() {
     if (!workspaceId || !projectId) return;
     try {
       const ws = await api.get<{ role: string }>(`/api/workspaces/${workspaceId}`);
       setRole(ws.role);
 
-      const projectRes = await api.get<{ project: { name: string } }>(
+      const projectRes = await api.get<{ project: { name: string; visibility: "workspace" | "private" } }>(
         `/api/workspaces/${workspaceId}/projects/${projectId}`,
       );
       setProjectName(projectRes.project.name);
+      setProjectVisibility(projectRes.project.visibility);
 
       const res = await api.get<{ categories: Category[] }>(
         `/api/workspaces/${workspaceId}/projects/${projectId}/categories`,
@@ -70,6 +96,71 @@ export default function CategoriesPage({ user }: { user: CurrentUser }) {
   }, [workspaceId, projectId]);
 
   const canManageCategories = role !== null && CAN_MANAGE_CATEGORY_ROLES.has(role);
+  const showProjectMembersPanel = projectVisibility === "private" && canManageCategories;
+
+  async function loadProjectMembersPanel() {
+    if (!workspaceId || !projectId) return;
+    setProjectMembersError(null);
+    try {
+      const [membersRes, rosterRes] = await Promise.all([
+        api.get<{ members: ProjectMember[] }>(
+          `/api/workspaces/${workspaceId}/projects/${projectId}/members`,
+        ),
+        api.get<{ members: WorkspaceRosterMember[] }>(`/api/workspaces/${workspaceId}/members`),
+      ]);
+      setProjectMembers(membersRes.members);
+      setWorkspaceRoster(rosterRes.members);
+    } catch (err) {
+      setProjectMembersError(
+        err instanceof ApiError ? err.message : "Could not load this project's members.",
+      );
+      setProjectMembers([]);
+    }
+  }
+
+  useEffect(() => {
+    if (showProjectMembersPanel) {
+      loadProjectMembersPanel().catch(() => undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId, projectId, showProjectMembersPanel]);
+
+  async function handleAddProjectMember(e: FormEvent) {
+    e.preventDefault();
+    if (!workspaceId || !projectId || !selectedNewMemberId) return;
+    setProjectMembersError(null);
+    setAddingMember(true);
+    try {
+      await api.post(`/api/workspaces/${workspaceId}/projects/${projectId}/members`, {
+        userId: selectedNewMemberId,
+      });
+      setSelectedNewMemberId("");
+      await loadProjectMembersPanel();
+    } catch (err) {
+      setProjectMembersError(
+        err instanceof ApiError ? err.message : "Could not add this member to the project.",
+      );
+    } finally {
+      setAddingMember(false);
+    }
+  }
+
+  async function handleRemoveProjectMember(userId: string) {
+    if (!workspaceId || !projectId) return;
+    setProjectMembersError(null);
+    try {
+      await api.delete(`/api/workspaces/${workspaceId}/projects/${projectId}/members/${userId}`);
+      setProjectMembers((prev) => (prev ?? []).filter((m) => m.userId !== userId));
+    } catch (err) {
+      setProjectMembersError(
+        err instanceof ApiError ? err.message : "Could not remove this member from the project.",
+      );
+    }
+  }
+
+  const addableRosterMembers = workspaceRoster.filter(
+    (m) => !(projectMembers ?? []).some((pm) => pm.userId === m.userId),
+  );
 
   async function handleCreateCategory(e: FormEvent) {
     e.preventDefault();
@@ -123,6 +214,62 @@ export default function CategoriesPage({ user }: { user: CurrentUser }) {
             </p>
           </div>
         </div>
+
+        {showProjectMembersPanel && (
+          <div className="ph-card ph-card-wide" style={{ marginBottom: "1.5rem" }}>
+            <h1 style={{ fontSize: "1rem" }}>Project members</h1>
+            <p className="ph-subtitle" style={{ margin: "0 0 0.75rem" }}>
+              This project is private — only these members (and managers) can see it.
+            </p>
+            {projectMembersError && <div className="ph-alert ph-alert-error">{projectMembersError}</div>}
+            {projectMembers === null ? (
+              <p>Loading...</p>
+            ) : projectMembers.length === 0 ? (
+              <div className="ph-empty-state">No explicit project members yet.</div>
+            ) : (
+              <ul className="ph-assignee-list">
+                {projectMembers.map((m) => (
+                  <li key={m.userId}>
+                    <span className="truncate" title={m.email}>
+                      {m.displayName} ({m.email})
+                    </span>
+                    <button
+                      type="button"
+                      className="ph-remove-btn"
+                      onClick={() => handleRemoveProjectMember(m.userId)}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <form
+              className="ph-inline-form"
+              style={{ marginTop: "0.75rem" }}
+              onSubmit={handleAddProjectMember}
+            >
+              <div className="ph-field">
+                <label htmlFor="newProjectMember">Add a workspace member</label>
+                <select
+                  id="newProjectMember"
+                  value={selectedNewMemberId}
+                  onChange={(e) => setSelectedNewMemberId(e.target.value)}
+                >
+                  <option value="">Select a member...</option>
+                  {addableRosterMembers.map((m) => (
+                    <option key={m.userId} value={m.userId}>
+                      {m.displayName} ({m.email})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button className="ph-button" type="submit" disabled={addingMember || !selectedNewMemberId}>
+                {addingMember ? "Adding..." : "Add"}
+              </button>
+            </form>
+          </div>
+        )}
 
         {categories === null ? (
           <p>Loading...</p>

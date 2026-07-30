@@ -4,6 +4,7 @@ import { api } from "./lib/api.js";
 import { getSocket, disconnectSocket } from "./lib/socket.js";
 import SetupPage from "./pages/SetupPage.js";
 import LoginPage from "./pages/LoginPage.js";
+import RegisterPage from "./pages/RegisterPage.js";
 import WorkspacesPage from "./pages/WorkspacesPage.js";
 import InviteAcceptPage from "./pages/InviteAcceptPage.js";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage.js";
@@ -13,6 +14,7 @@ import CategoriesPage from "./pages/CategoriesPage.js";
 import NewCategoryPage from "./pages/NewCategoryPage.js";
 import KanbanBoardPage from "./pages/KanbanBoardPage.js";
 import AnalyticsPage from "./pages/AnalyticsPage.js";
+import WorkspaceMembersPage from "./pages/WorkspaceMembersPage.js";
 
 export interface CurrentUser {
   id: string;
@@ -100,12 +102,20 @@ export default function App() {
           )
         }
       />
+      <Route
+        path="/register"
+        element={user ? <Navigate to="/" replace /> : <RegisterPage />}
+      />
       <Route path="/invite/accept" element={<InviteAcceptPage user={user} />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route
         path="/workspace/:workspaceId/projects"
         element={user ? <ProjectsPage user={user} /> : <Navigate to="/login" replace />}
+      />
+      <Route
+        path="/workspace/:workspaceId/members"
+        element={user ? <WorkspaceMembersPage user={user} /> : <Navigate to="/login" replace />}
       />
       <Route
         path="/workspace/:workspaceId/projects/:projectId/categories"

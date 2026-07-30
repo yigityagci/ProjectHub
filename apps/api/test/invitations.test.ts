@@ -8,6 +8,7 @@ import {
   registerAndLogin,
   createWorkspaceAs,
   captureInvitationToken,
+  inviteAndAccept,
   freshClient,
   type TestClient,
 } from "./helpers.js";
@@ -174,5 +175,85 @@ describe("Invitation token flow end-to-end", () => {
       where: { workspaceId, user: { email: invitedEmail } },
     });
     expect(count).toBe(1);
+  });
+
+  it("GET .../invitations lists only pending invitations, gated by member.invite or role.manage", async () => {
+    // Uses its own fresh workspace (rather than the describe-wide
+    // `workspaceId`) so this test's pending-invitation count isn't polluted
+    // by other tests' still-pending invitations left over in the shared
+    // workspace (e.g. the expired/mismatched-email cases above never
+    // transition their invitation row out of "pending").
+    const listWorkspace = await createWorkspaceAs(owner, "Invite List Co", "invite-list-co");
+    const listWorkspaceId = listWorkspace.id;
+
+    const pendingEmail = "list-pending@example.com";
+    await captureInvitationToken(() =>
+      owner.post(`/api/workspaces/${listWorkspaceId}/invitations`, {
+        email: pendingEmail,
+        roleKey: "MEMBER",
+      }),
+    );
+
+    const acceptedEmail = "list-accepted@example.com";
+    const acceptedToken = await captureInvitationToken(() =>
+      owner.post(`/api/workspaces/${listWorkspaceId}/invitations`, {
+        email: acceptedEmail,
+        roleKey: "MEMBER",
+      }),
+    );
+    const acceptedInvitee = await registerAndLogin(app, acceptedEmail);
+    await acceptedInvitee.post(`/api/invitations/${acceptedToken}/accept`);
+
+    const revokedEmail = "list-revoked@example.com";
+    const revokedToken = await captureInvitationToken(() =>
+      owner.post(`/api/workspaces/${listWorkspaceId}/invitations`, {
+        email: revokedEmail,
+        roleKey: "MEMBER",
+      }),
+    );
+    const revokedInvitation = await prisma.invitation.findFirst({ where: { email: revokedEmail } });
+    await owner.post(`/api/workspaces/${listWorkspaceId}/invitations/${revokedInvitation!.id}/revoke`);
+    expect(revokedToken).toBeTruthy();
+
+    // Owner (has both member.invite and role.manage) sees only the pending one.
+    const listRes = await owner.get(`/api/workspaces/${listWorkspaceId}/invitations`);
+    expect(listRes.statusCode).toBe(200);
+    const invitations = listRes.json().invitations as Array<{
+      id: string;
+      email: string;
+      roleKey: string;
+      roleName: string;
+      status: string;
+      expiresAt: string;
+      createdAt: string;
+    }>;
+    expect(invitations).toHaveLength(1);
+    expect(invitations[0]!.email).toBe(pendingEmail);
+    expect(invitations[0]!.roleKey).toBe("MEMBER");
+    expect(invitations[0]!.status).toBe("pending");
+    expect(invitations[0]!.expiresAt).toBeTruthy();
+    expect(invitations[0]!.createdAt).toBeTruthy();
+
+    // A plain MEMBER (neither member.invite nor role.manage) is forbidden.
+    const plainMember = await inviteAndAccept(
+      app,
+      owner,
+      listWorkspaceId,
+      "plain-member@example.com",
+      "MEMBER",
+    );
+    const forbiddenRes = await plainMember.get(`/api/workspaces/${listWorkspaceId}/invitations`);
+    expect(forbiddenRes.statusCode).toBe(403);
+
+    // A PROJECT_MANAGER (has member.invite but not role.manage) is allowed.
+    const pm = await inviteAndAccept(
+      app,
+      owner,
+      listWorkspaceId,
+      "pm-lister@example.com",
+      "PROJECT_MANAGER",
+    );
+    const pmRes = await pm.get(`/api/workspaces/${listWorkspaceId}/invitations`);
+    expect(pmRes.statusCode).toBe(200);
   });
 });

@@ -9,6 +9,7 @@ import {
   getInvitationByToken,
   acceptInvitation,
   revokeInvitation,
+  listWorkspaceInvitations,
   buildInvitationLink,
 } from "./invitations.service.js";
 
@@ -61,6 +62,25 @@ export async function registerInvitationRoutes(app: FastifyInstance): Promise<vo
           expiresAt: invitation.expiresAt,
         },
       });
+    },
+  );
+
+  // Lists this workspace's pending invitations. Dual-permission gate
+  // (member.invite OR role.manage), mirroring the revoke route just below
+  // rather than a single requirePermission(...) guard, since either
+  // permission alone should be able to see what's pending.
+  app.get(
+    "/api/workspaces/:workspaceId/invitations",
+    { preHandler: [requireAuth, requireMembership] },
+    async (req, reply) => {
+      const canInvite = req.ctx.permissions?.has("member.invite");
+      const canManageRoles = req.ctx.permissions?.has("role.manage");
+      if (!canInvite && !canManageRoles) {
+        throw new ForbiddenError();
+      }
+
+      const invitations = await listWorkspaceInvitations(req.ctx.workspace!.id);
+      return reply.send({ invitations });
     },
   );
 

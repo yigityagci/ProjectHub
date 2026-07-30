@@ -17,6 +17,15 @@ interface Project {
 
 const CAN_CREATE_PROJECT_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
 
+// Union of WorkspaceMembersPage's three role-gates (CAN_INVITE_ROLES /
+// CAN_MANAGE_ROLES_ROLES / CAN_REMOVE_MEMBER_ROLES) — happens to match
+// CAN_CREATE_PROJECT_ROLES's role set today (OWNER/ADMIN/PROJECT_MANAGER),
+// but is kept as its own named constant since it represents a different
+// permission union (an invite-only PROJECT_MANAGER still needs to reach the
+// members page even though none of the other two workspace-members
+// permissions apply to them).
+const CAN_ACCESS_WORKSPACE_MEMBERS_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
+
 export default function ProjectsPage({ user }: { user: CurrentUser }) {
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const navigate = useNavigate();
@@ -110,6 +119,7 @@ export default function ProjectsPage({ user }: { user: CurrentUser }) {
   }
 
   const canCreate = role !== null && CAN_CREATE_PROJECT_ROLES.has(role);
+  const canAccessMembers = role !== null && CAN_ACCESS_WORKSPACE_MEMBERS_ROLES.has(role);
 
   return (
     <div className="ph-shell ph-shell-wide">
@@ -134,6 +144,15 @@ export default function ProjectsPage({ user }: { user: CurrentUser }) {
               Projects you have access to in {workspaceName || "this workspace"}.
             </p>
           </div>
+          {canAccessMembers && (
+            <Link
+              className="ph-button ph-button-secondary"
+              style={{ width: "auto", textDecoration: "none" }}
+              to={`/workspace/${workspaceId}/members`}
+            >
+              Manage members
+            </Link>
+          )}
         </div>
 
         <div className="ph-filter-bar">
