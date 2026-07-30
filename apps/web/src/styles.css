@@ -198,8 +198,17 @@ h3 {
  * per-component markup changes. More specific selectors below (`.ph-field
  * input`, `.ph-filter-bar select`, etc.) layer on top for sizing/background
  * differences and win automatically via higher specificity.
+ *
+ * The `:not(...)` exclusions are wrapped in `:where()` deliberately: each
+ * `:not([type="..."])` clause is itself an attribute selector and normally
+ * adds to specificity, which put this rule's specificity ABOVE
+ * `.ph-field input` (0,4,1 vs 0,1,1) despite the comment above claiming
+ * the opposite — `.ph-field`-wrapped inputs were silently stuck at
+ * `width: auto` (the browser's ~20-character default) instead of the
+ * intended 100%. `:where()` always contributes zero specificity, so the
+ * more specific selectors below win as intended.
  * --------------------------------------------------------------------- */
-input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="color"]),
+input:where(:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="color"])),
 textarea {
   width: auto;
   padding: 0.55rem 0.7rem;
@@ -212,12 +221,12 @@ textarea {
   transition: border-color 150ms ease, box-shadow 150ms ease;
 }
 
-input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):hover,
+input:where(:not([type="checkbox"]):not([type="radio"]):not([type="file"])):hover,
 textarea:hover {
   border-color: var(--ph-primary);
 }
 
-input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus,
+input:where(:not([type="checkbox"]):not([type="radio"]):not([type="file"])):focus,
 textarea:focus {
   outline: none;
   border-color: var(--ph-primary);
