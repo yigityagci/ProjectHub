@@ -30,6 +30,11 @@ const envSchema = z
     // takeover if leaked, so their TTL is deliberately much shorter than
     // an invitation's.
     PASSWORD_RESET_TTL_HOURS: z.coerce.number().positive().default(1),
+    // Registration tokens are meant to be generated once and shared/reused
+    // to onboard several people over time (unlike a single-recipient
+    // Invitation), so their TTL is denominated in days, not hours, and is
+    // the longest-lived of the three token types here.
+    REGISTRATION_TOKEN_TTL_DAYS: z.coerce.number().positive().default(30),
     RATE_LIMIT_PASSWORD_RESET_MAX: z.coerce.number().positive().default(5),
     RATE_LIMIT_PASSWORD_RESET_WINDOW_MINUTES: z.coerce.number().positive().default(15),
     ARGON2_MEMORY_COST_KIB: z.coerce.number().positive().default(19456),

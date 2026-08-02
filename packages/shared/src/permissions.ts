@@ -12,6 +12,7 @@ export const PERMISSIONS = [
   "member.invite",
   "member.remove",
   "role.manage",
+  "registration_token.manage",
 
   // Projects (Phase 2)
   "project.create",

@@ -28,6 +28,15 @@ export const CAN_REMOVE_MEMBER_ROLES = new Set(["OWNER", "ADMIN"]);
 // PROJECT_MANAGER does not have it).
 export const CAN_MANAGE_WORKSPACE_SETTINGS_ROLES = new Set(["OWNER", "ADMIN"]);
 
+// Mirrors `registration_token.manage`'s grant (OWNER/ADMIN only, same
+// grant shape as workspace.settings.manage). Placed here alongside the
+// other four for consistency, even though it only has one consumer today
+// (RegistrationTokensPanel.tsx) — the other four only earned a shared file
+// once 3+ consumers existed, so a case could be made for a local constant
+// instead; this one leans on "5th gate in an already-shared file" being
+// simpler to find than introducing a second gate-constants location.
+export const CAN_MANAGE_REGISTRATION_TOKENS_ROLES = new Set(["OWNER", "ADMIN"]);
+
 /**
  * Union of the four gates above — whether the caller should see the Manage
  * Team tab/link at all (an invite-only PROJECT_MANAGER still needs to reach

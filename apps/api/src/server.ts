@@ -16,6 +16,7 @@ import { registerOpenApi } from "./openapi.js";
 import { registerAuthRoutes } from "./auth/auth.routes.js";
 import { registerAccountRoutes } from "./auth/account.routes.js";
 import { registerSetupRoutes } from "./auth/setup.routes.js";
+import { registerRegistrationTokenRoutes } from "./auth/registration-token.routes.js";
 import { registerWorkspaceRoutes } from "./workspaces/workspaces.routes.js";
 import { registerMemberRoutes } from "./workspaces/members.routes.js";
 import { registerInvitationRoutes } from "./workspaces/invitations.routes.js";
@@ -123,6 +124,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await registerWorkspaceRoutes(app);
   await registerMemberRoutes(app);
   await registerInvitationRoutes(app);
+  await registerRegistrationTokenRoutes(app);
   await registerProjectRoutes(app);
   await registerCategoryRoutes(app);
   await registerColumnRoutes(app);

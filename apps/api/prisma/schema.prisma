@@ -120,6 +120,14 @@ model User {
   memberships         WorkspaceMembership[]
   sentInvitations     Invitation[]          @relation("InvitationInvitedBy")
   acceptedInvitations Invitation[]          @relation("InvitationAcceptedBy")
+  // Both sides are plural even though, by construction, a user can only
+  // ever be the `usedBy` of a single RegistrationToken (registerUser
+  // creates the user and marks the token used in the same transaction) —
+  // usedByUserId is deliberately not @unique (mirrors Invitation's
+  // acceptedUserId, which has the same one-user-many-possible-rows FK
+  // shape), so Prisma requires the array form here regardless.
+  createdRegistrationTokens RegistrationToken[] @relation("RegistrationTokenCreatedBy")
+  usedRegistrationTokens    RegistrationToken[] @relation("RegistrationTokenUsedBy")
   auditLogEntries     AuditLogEntry[]
 
   ownedProjects       Project[]            @relation("ProjectOwner")
@@ -185,10 +193,11 @@ model Workspace {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  roles           Role[]
-  memberships     WorkspaceMembership[]
-  invitations     Invitation[]
-  auditLogEntries AuditLogEntry[]
+  roles              Role[]
+  memberships        WorkspaceMembership[]
+  invitations        Invitation[]
+  registrationTokens RegistrationToken[]
+  auditLogEntries    AuditLogEntry[]
 
   projects            Project[]
   projectMemberships  ProjectMembership[]
@@ -223,6 +232,7 @@ model Role {
   permissions RolePermission[]
   memberships WorkspaceMembership[]
   invitations Invitation[]
+  registrationTokens RegistrationToken[]
 
   @@unique([workspaceId, key])
   @@map("roles")
@@ -275,6 +285,38 @@ model Invitation {
 
   @@index([workspaceId, email])
   @@map("invitations")
+}
+
+// Gates account creation (see registration-token.service.ts): generated
+// from within a specific workspace's Manage Team tab by an OWNER/ADMIN
+// (registration_token.manage). Carries a roleId (like Invitation) — the
+// generator picks the role the redeeming user will join this workspace
+// with, and registerUser creates that WorkspaceMembership atomically with
+// the User row. Mirrors PasswordResetToken's hashed-bearer-token shape,
+// but longer-lived and multi-use-eligible in spirit
+// (REGISTRATION_TOKEN_TTL_DAYS, see config/env.ts) since it's meant to be
+// shared/reused more broadly than a single-recipient Invitation, while
+// still being single-use in practice once redeemed (`usedAt`).
+model RegistrationToken {
+  id           String    @id @default(uuid())
+  tokenHash    String    @unique
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  roleId       String
+  role         Role      @relation(fields: [roleId], references: [id])
+  createdById  String
+  createdBy    User      @relation("RegistrationTokenCreatedBy", fields: [createdById], references: [id])
+  label        String?
+  expiresAt    DateTime
+  usedAt       DateTime?
+  usedByUserId String?
+  usedBy       User?     @relation("RegistrationTokenUsedBy", fields: [usedByUserId], references: [id])
+  revokedAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([workspaceId])
+  @@index([roleId])
+  @@map("registration_tokens")
 }
 
 model AuditLogEntry {

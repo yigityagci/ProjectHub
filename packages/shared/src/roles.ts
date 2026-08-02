@@ -80,6 +80,7 @@ const ADMIN_PERMISSIONS: Permission[] = [
   "audit.view",
   "workspace.settings.manage",
   "category.manage",
+  "registration_token.manage",
 ];
 
 const PROJECT_MANAGER_PERMISSIONS: Permission[] = [

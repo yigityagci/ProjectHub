@@ -1,8 +1,12 @@
 import crypto from "node:crypto";
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from "fastify";
+import type { RoleKey } from "@projecthub/shared";
 import { buildServer } from "../src/server.js";
 import { prisma } from "../src/core/prisma.js";
 import { redis } from "../src/core/redis.js";
+import { hashPassword } from "../src/auth/password.js";
+import { createWorkspace } from "../src/workspaces/workspaces.service.js";
+import { generateRegistrationToken } from "../src/auth/registration-token.service.js";
 
 export async function createTestApp(): Promise<FastifyInstance> {
   const app = await buildServer();
@@ -20,6 +24,7 @@ export async function resetDatabase(): Promise<void> {
       "audit_log_entries",
       "activity_events",
       "invitations",
+      "registration_tokens",
       "notifications",
       "mentions",
       "comments",
@@ -171,6 +176,64 @@ export function buildMultipartUpload(opts: {
 
 export const VALID_PASSWORD = "Str0ng!Passw0rd#";
 
+const BOOTSTRAP_WORKSPACE_SLUG = "ph-test-registration-bootstrap";
+const BOOTSTRAP_OWNER_EMAIL = "ph-test-registration-bootstrap-owner@example.com";
+
+/**
+ * Registration now requires a valid, unconsumed registration token (see
+ * registration-token.service.ts) — real callers get one from an
+ * OWNER/ADMIN's Manage Team tab. Test helpers need a fresh one for nearly
+ * every simulated registration across this whole suite, so rather than
+ * making every test file manage its own bootstrap workspace, this lazily
+ * creates (and, after a resetDatabase() truncate, transparently recreates)
+ * one persistent "system bootstrap" workspace+owner directly via Prisma/the
+ * real service layer, then mints a fresh single-use token from it per call —
+ * mirroring exactly what an OWNER would do via
+ * POST /api/workspaces/:id/registration-tokens, just skipping the HTTP hop
+ * since this is test scaffolding, not the thing under test.
+ *
+ * NOTE: redeeming a registration token now also joins the redeemer to the
+ * token's workspace with its role (see auth.service.ts's registerUser), so
+ * every user created via getFreshRegistrationToken/registerAndLogin ends up
+ * an incidental member of this "Registration Bootstrap" workspace too, at
+ * whatever role was requested (default MEMBER). This is harmless for tests
+ * that only care about a workspace they create themselves afterward, but
+ * matters for anything asserting exact membership/workspace counts.
+ */
+async function ensureBootstrapWorkspace(): Promise<{ workspaceId: string; ownerId: string }> {
+  const existing = await prisma.workspace.findUnique({ where: { slug: BOOTSTRAP_WORKSPACE_SLUG } });
+  if (existing) {
+    const ownerMembership = await prisma.workspaceMembership.findFirst({
+      where: { workspaceId: existing.id, role: { key: "OWNER" } },
+    });
+    if (ownerMembership) {
+      return { workspaceId: existing.id, ownerId: ownerMembership.userId };
+    }
+  }
+
+  const passwordHash = await hashPassword(VALID_PASSWORD);
+  const owner = await prisma.user.create({
+    data: {
+      email: BOOTSTRAP_OWNER_EMAIL,
+      passwordHash,
+      displayName: "Registration Bootstrap",
+    },
+  });
+  const workspace = await createWorkspace({
+    name: "Registration Bootstrap",
+    slug: BOOTSTRAP_WORKSPACE_SLUG,
+    ownerId: owner.id,
+  });
+  return { workspaceId: workspace.id, ownerId: owner.id };
+}
+
+/** Mints a fresh, valid, single-use registration token for use in a `POST /api/auth/register` body. */
+export async function getFreshRegistrationToken(roleKey: RoleKey = "MEMBER"): Promise<string> {
+  const { workspaceId, ownerId } = await ensureBootstrapWorkspace();
+  const { rawToken } = await generateRegistrationToken({ workspaceId, createdById: ownerId, roleKey });
+  return rawToken;
+}
+
 export interface SetupResult {
   client: TestClient;
   email: string;
@@ -194,12 +257,15 @@ export async function registerAndLogin(
   app: FastifyInstance,
   email: string,
   displayName = "Test User",
+  registrationTokenRole: RoleKey = "MEMBER",
 ): Promise<TestClient> {
   const anon = freshClient(app);
+  const registrationToken = await getFreshRegistrationToken(registrationTokenRole);
   const regRes = await anon.post("/api/auth/register", {
     email,
     password: VALID_PASSWORD,
     displayName,
+    registrationToken,
   });
   if (regRes.statusCode !== 201) {
     throw new Error(`Register failed: ${regRes.statusCode} ${regRes.body}`);

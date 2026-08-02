@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { ROLE_DISPLAY_NAME, type RoleKey } from "@projecthub/shared";
 import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
 
@@ -11,8 +12,10 @@ export default function RegisterPage() {
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [registrationToken, setRegistrationToken] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [joinedWorkspace, setJoinedWorkspace] = useState<{ name: string; roleKey: RoleKey } | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
@@ -24,7 +27,11 @@ export default function RegisterPage() {
       // apps/api/src/auth/auth.routes.ts) — the caller must log in
       // separately afterwards, mirroring ResetPasswordPage's
       // success-message-then-redirect pattern.
-      await api.post("/api/auth/register", { email, password, displayName });
+      const res = await api.post<{ workspace: { name: string }; role: RoleKey }>(
+        "/api/auth/register",
+        { email, password, displayName, registrationToken },
+      );
+      setJoinedWorkspace({ name: res.workspace.name, roleKey: res.role });
       setSuccess(true);
       const loginTarget = redirect ? `/login?redirect=${encodeURIComponent(redirect)}` : "/login";
       setTimeout(() => navigate(loginTarget), 1500);
@@ -75,6 +82,16 @@ export default function RegisterPage() {
                   required
                 />
               </div>
+              <div className="ph-field">
+                <label htmlFor="registrationToken">Registration token</label>
+                <input
+                  id="registrationToken"
+                  value={registrationToken}
+                  onChange={(e) => setRegistrationToken(e.target.value)}
+                  placeholder="Paste the token an admin gave you"
+                  required
+                />
+              </div>
               <button className="ph-button" type="submit" disabled={loading}>
                 {loading ? "Creating account..." : "Create account"}
               </button>
@@ -84,7 +101,10 @@ export default function RegisterPage() {
 
         {success && (
           <div className="ph-alert ph-alert-success">
-            Your account has been created. Redirecting you to log in...
+            Your account has been created
+            {joinedWorkspace &&
+              ` and you've joined ${joinedWorkspace.name} as ${ROLE_DISPLAY_NAME[joinedWorkspace.roleKey]}`}
+            . Redirecting you to log in...
           </div>
         )}
 

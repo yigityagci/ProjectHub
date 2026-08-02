@@ -57,10 +57,23 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         throw new ValidationError(parsed.error.issues[0]?.message ?? "Invalid input.");
       }
 
-      const user = await registerUser(parsed.data);
+      const { user, workspace, role } = await registerUser(parsed.data);
+
+      await recordAuditEvent({
+        workspaceId: workspace.id,
+        actorId: user.id,
+        action: "user.registered",
+        targetType: "User",
+        targetId: user.id,
+        metadata: { roleKey: role.key },
+        ip: req.ip,
+        userAgent: req.headers["user-agent"] ?? null,
+      });
 
       return reply.code(201).send({
         user: toAuthenticatedUser(user),
+        workspace: { id: workspace.id, name: workspace.name, slug: workspace.slug },
+        role: role.key,
       });
     },
   );

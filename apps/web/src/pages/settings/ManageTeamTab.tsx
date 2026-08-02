@@ -6,13 +6,15 @@ import {
   CAN_MANAGE_ROLES_ROLES,
   CAN_REMOVE_MEMBER_ROLES,
   CAN_MANAGE_WORKSPACE_SETTINGS_ROLES,
+  CAN_MANAGE_REGISTRATION_TOKENS_ROLES,
 } from "../../lib/workspace-role-gates.js";
+import RegistrationTokensPanel from "./RegistrationTokensPanel.js";
 import type { SettingsTabProps } from "./types.js";
 
 // Straight port of WorkspaceMembersPage.tsx's content (now deleted) into
-// this tab — no copy changes, no new features, no "generate registration
-// token" affordance (a separate, later item). Only the shell chrome
-// (Brand/topbar/breadcrumb) was dropped, since SettingsPage now owns it.
+// this tab — no copy changes, no new features beyond the "Registration
+// tokens" panel below. Only the shell chrome (Brand/topbar/breadcrumb) was
+// dropped, since SettingsPage now owns it.
 
 interface Member {
   userId: string;
@@ -122,6 +124,7 @@ export default function ManageTeamTab({
   const canRemoveMember = role !== null && CAN_REMOVE_MEMBER_ROLES.has(role);
   const canRevokeInvitation = canInvite || canManageRoles;
   const canManageWorkspaceSettings = role !== null && CAN_MANAGE_WORKSPACE_SETTINGS_ROLES.has(role);
+  const canManageRegistrationTokens = role !== null && CAN_MANAGE_REGISTRATION_TOKENS_ROLES.has(role);
 
   async function handleRename(e: FormEvent) {
     e.preventDefault();
@@ -365,6 +368,10 @@ export default function ManageTeamTab({
             </button>
           </form>
         </div>
+      )}
+
+      {canManageRegistrationTokens && workspaceId && (
+        <RegistrationTokensPanel workspaceId={workspaceId} role={role} />
       )}
     </>
   );

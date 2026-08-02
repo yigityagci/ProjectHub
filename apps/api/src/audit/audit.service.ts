@@ -35,7 +35,10 @@ export type AuditAction =
   | "email_change.completed"
   | "email_change.failed"
   | "password_change.completed"
-  | "password_change.failed";
+  | "password_change.failed"
+  | "registration_token.generated"
+  | "registration_token.revoked"
+  | "user.registered";
 
 export interface RecordAuditEventInput {
   workspaceId?: string | null;

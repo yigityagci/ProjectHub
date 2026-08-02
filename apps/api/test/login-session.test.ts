@@ -7,6 +7,7 @@ import {
   disconnectAll,
   freshClient,
   registerAndLogin,
+  getFreshRegistrationToken,
   VALID_PASSWORD,
 } from "./helpers.js";
 import { prisma } from "../src/core/prisma.js";
@@ -32,6 +33,7 @@ describe("Login / session lifecycle", () => {
       email: "carol@example.com",
       password: VALID_PASSWORD,
       displayName: "Carol",
+      registrationToken: await getFreshRegistrationToken(),
     });
 
     const client = freshClient(app);
@@ -52,6 +54,7 @@ describe("Login / session lifecycle", () => {
       email: "dave@example.com",
       password: VALID_PASSWORD,
       displayName: "Dave",
+      registrationToken: await getFreshRegistrationToken(),
     });
 
     const client = freshClient(app);
