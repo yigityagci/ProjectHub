@@ -30,6 +30,17 @@ async function captureResetToken(action: () => Promise<unknown>): Promise<string
   };
   try {
     await action();
+    // The password-reset send is deliberately fire-and-forget (for
+    // anti-enumeration response-timing) and, per email.service.ts's
+    // resolveTransport, now does a real DB round-trip (re-reading the
+    // platform email config) on every send before falling back to this
+    // dev/console transport — so the console.log below may not have
+    // happened yet the instant action() resolves. Poll briefly rather than
+    // racing against it; this returns immediately once the token appears.
+    const deadline = Date.now() + 1000;
+    while (Date.now() < deadline && !/reset-password\?token=/.test(logs.join("\n"))) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
   } finally {
     console.log = original;
   }

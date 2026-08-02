@@ -18,12 +18,14 @@ import KanbanBoardPage from "./pages/KanbanBoardPage.js";
 import AnalyticsPage from "./pages/AnalyticsPage.js";
 import ProjectSettingsPage from "./pages/ProjectSettingsPage.js";
 import SettingsPage from "./pages/settings/SettingsPage.js";
+import PlatformEmailSettingsPage from "./pages/platform/PlatformEmailSettingsPage.js";
 
 export interface CurrentUser {
   id: string;
   email: string;
   displayName: string;
   avatarUrl?: string | null;
+  isPlatformAdmin: boolean;
 }
 
 export function Brand() {
@@ -53,6 +55,7 @@ export default function App() {
               email: me.user.email,
               displayName: me.user.displayName,
               avatarUrl: me.user.avatarUrl,
+              isPlatformAdmin: me.user.isPlatformAdmin,
             });
             // DB is the cross-device source of truth; mirror it down into
             // localStorage right away so it's applied on the very next
@@ -122,6 +125,18 @@ export default function App() {
       <Route path="/invite/accept" element={<InviteAcceptPage user={user} />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route
+        path="/platform-settings/email"
+        element={
+          !user ? (
+            <Navigate to="/login" replace />
+          ) : !user.isPlatformAdmin ? (
+            <Navigate to="/" replace />
+          ) : (
+            <PlatformEmailSettingsPage user={user} />
+          )
+        }
+      />
       <Route
         path="/workspace/:workspaceId/projects"
         element={user ? <ProjectsPage user={user} /> : <Navigate to="/login" replace />}

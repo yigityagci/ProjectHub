@@ -15,3 +15,4 @@ export * from "./dto/notification.js";
 export * from "./dto/attachment.js";
 export * from "./dto/activity.js";
 export * from "./dto/user.js";
+export * from "./dto/platform-email.js";

@@ -19,8 +19,6 @@ const envSchema = z
       .default("false")
       .transform((v) => v === "true"),
     CORS_ORIGIN: z.string().default("http://localhost:5173"),
-    SMTP_URL: z.string().optional(),
-    SMTP_FROM: z.string().optional(),
     RATE_LIMIT_LOGIN_MAX: z.coerce.number().positive().default(10),
     RATE_LIMIT_LOGIN_WINDOW_MINUTES: z.coerce.number().positive().default(15),
     RATE_LIMIT_GLOBAL_MAX: z.coerce.number().positive().default(300),

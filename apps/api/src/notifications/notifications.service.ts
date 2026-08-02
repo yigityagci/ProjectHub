@@ -2,7 +2,9 @@ import type { NotificationType } from "@projecthub/shared";
 import type { Notification } from "@prisma/client";
 import { prisma } from "../core/prisma.js";
 import { NotFoundError } from "../core/errors.js";
+import { logger } from "../core/logger.js";
 import { emitToUser } from "../realtime/realtime.js";
+import { sendNotificationEmailFor } from "./notification-email.js";
 
 export interface CreateNotificationInput {
   workspaceId: string;
@@ -61,7 +63,13 @@ function serializeNotification(n: {
 export async function createNotification(input: CreateNotificationInput): Promise<Notification | null> {
   const recipient = await prisma.user.findUnique({
     where: { id: input.recipientUserId },
-    select: { notifyOnMention: true, notifyOnTaskAssigned: true, notifyOnCommentReply: true },
+    select: {
+      notifyOnMention: true,
+      notifyOnTaskAssigned: true,
+      notifyOnCommentReply: true,
+      email: true,
+      displayName: true,
+    },
   });
   if (!recipient) return null;
 
@@ -78,6 +86,17 @@ export async function createNotification(input: CreateNotificationInput): Promis
   });
 
   emitToUser(input.recipientUserId, "notification.created", serializeNotification(notification));
+
+  // Fire-and-forget: an SMTP timeout must never fail (or slow down) the
+  // request that triggered the notification. Mirrors auth.routes.ts's
+  // password-reset send exactly. Errors are NOT swallowed — they surface as
+  // structured logger.error entries.
+  void sendNotificationEmailFor(notification, recipient).catch((err) => {
+    logger.error(
+      { err, notificationId: notification.id, type: input.type, recipientUserId: input.recipientUserId },
+      "Failed to send notification email",
+    );
+  });
 
   return notification;
 }

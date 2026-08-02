@@ -38,7 +38,23 @@ half-working instance.
 | `ARGON2_MEMORY_COST_KIB` / `ARGON2_TIME_COST` / `ARGON2_PARALLELISM` | Password hashing cost. The `.env.example` defaults are reasonable for a small VPS; raise `ARGON2_MEMORY_COST_KIB` if your server has memory to spare and you want stronger hashing. |
 | `UPLOAD_DIR` | Where the local-disk `StorageProvider` (Phase 4) writes attachments - must match the `uploads` volume mount in `docker-compose.yml` (it does, by default). |
 | `UPLOAD_MAX_SIZE_BYTES` | Max attachment size, enforced by `@fastify/multipart` (default 25 MB). |
-| `SMTP_URL` / `SMTP_FROM` | Optional. Accepts a standard nodemailer connection string (e.g. `smtp://user:pass@host:587`); when set, both invitation emails and password-reset emails are sent through it. If unset, those emails are logged to the API's console instead of sent - fine for evaluation, not for real onboarding of real users who won't have console access. |
+
+**Outbound email is no longer an environment variable.** It's configured at
+runtime, per-installation, by a platform administrator from Platform
+Settings > Email (`/platform-settings/email` in the web UI, backed by
+`GET/PATCH/DELETE /api/platform/email-config` and gated by
+`User.isPlatformAdmin`, see `apps/api/src/rbac/guards.ts#requirePlatformAdmin`).
+The SMTP password is encrypted at rest (AES-256-GCM, key derived from
+`APP_SECRET` via HKDF - see `apps/api/src/core/secret-box.ts`) and is never
+returned by any API response. **Rotating `APP_SECRET` after email has been
+configured permanently invalidates the stored SMTP password** - the app
+degrades gracefully (falls back to logging emails to the console, exactly
+like the unconfigured state) and an admin must re-enter it. Until email is
+configured and enabled, invitation/password-reset/notification emails are
+logged to the API's console instead of sent - fine for evaluation, not for
+real onboarding of real users who won't have console access. The Platform
+Settings > Email page also includes built-in SPF/DKIM/DMARC/PTR DNS
+deliverability guidance.
 
 Redis (`REDIS_URL`) needs no additional configuration beyond what's already
 in `docker-compose.yml` - it's used for rate limiting, sessions-adjacent

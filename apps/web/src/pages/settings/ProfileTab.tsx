@@ -28,6 +28,7 @@ export default function ProfileTab({ settings, onSettingsChange, onUserUpdated }
         email: res.user.email,
         displayName: res.user.displayName,
         avatarUrl: res.user.avatarUrl,
+        isPlatformAdmin: res.user.isPlatformAdmin,
       });
       setDisplayName(res.user.displayName);
       setAvatarUrl(res.user.avatarUrl ?? "");

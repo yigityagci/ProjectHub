@@ -211,3 +211,28 @@ export async function requireCategoryAccess(req: FastifyRequest, _reply: Fastify
   req.ctx.category = category;
   req.ctx.categoryMembership = categoryMembership;
 }
+
+/**
+ * Instance-wide platform-administrator gate. This is a DIFFERENT
+ * authorization axis from everything else in this file: workspace RBAC
+ * (requireMembership + requirePermission) answers "what may you do inside
+ * workspace X", whereas User.isPlatformAdmin answers "do you administer
+ * this ProjectHub installation". A workspace OWNER is NOT a platform
+ * admin. Only the very first user, created via POST /api/setup, is.
+ *
+ * Unlike the workspace/project/category guards, denial is 403, not 404:
+ * those return 404 so an outsider cannot probe whether a specific
+ * workspace exists, but the existence of the platform-settings endpoints
+ * is not a secret, so there is nothing to conceal. Mirrors
+ * requirePermission's 403.
+ *
+ * Must run after requireAuth (it reads req.ctx.user).
+ */
+export async function requirePlatformAdmin(req: FastifyRequest, _reply: FastifyReply): Promise<void> {
+  if (!req.ctx?.user) {
+    throw new UnauthorizedError();
+  }
+  if (!req.ctx.user.isPlatformAdmin) {
+    throw new ForbiddenError();
+  }
+}

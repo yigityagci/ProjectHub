@@ -192,7 +192,8 @@ apps/api/src/
                     requireProjectAccess/requireCategoryAccess), rank/last-owner/last-category rules
   workspaces/       workspace CRUD, membership listing/role changes, invitations
   audit/            append-only security audit log writer (allowlisted metadata)
-  email/            email abstraction (dev console transport unless SMTP_URL is set)
+  email/            email abstraction (dev console transport unless a platform admin
+                    has configured & enabled SMTP via Platform Settings > Email)
   projects/         project CRUD; categories (Phase 9) CRUD + membership; board columns
                     (incl. custom color); tasks/subtasks (incl. the completion checkbox);
                     labels; milestones; task dependencies

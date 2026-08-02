@@ -69,6 +69,15 @@ export default function WorkspacesPage({
         <div className="ph-topbar-actions">
           <ThemeToggle />
           <NotificationBell />
+          {user.isPlatformAdmin && (
+            <Link
+              to="/platform-settings/email"
+              className="ph-button ph-button-secondary"
+              style={{ width: "auto", textDecoration: "none" }}
+            >
+              Email settings
+            </Link>
+          )}
           <span style={{ fontSize: "0.9rem" }}>{user.displayName}</span>
           <button className="ph-button ph-button-secondary" style={{ width: "auto" }} onClick={handleLogout}>
             Log out

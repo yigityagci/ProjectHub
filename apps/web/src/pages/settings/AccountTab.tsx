@@ -25,6 +25,7 @@ export default function AccountTab({ settings, onSettingsChange, onUserUpdated }
         email: res.user.email,
         displayName: res.user.displayName,
         avatarUrl: res.user.avatarUrl,
+        isPlatformAdmin: res.user.isPlatformAdmin,
       });
       setNewEmail("");
       setCurrentPassword("");

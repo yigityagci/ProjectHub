@@ -82,6 +82,12 @@ enum NotificationType {
   comment_reply
 }
 
+enum SmtpSecurity {
+  none      // plaintext, no TLS at all (nodemailer: ignoreTLS)
+  starttls  // plaintext connect, upgrade via STARTTLS (port 587) — the default
+  tls       // implicit TLS from the first byte (port 465)
+}
+
 enum ActivityEventType {
   task_created
   task_moved
@@ -129,6 +135,7 @@ model User {
   createdRegistrationTokens RegistrationToken[] @relation("RegistrationTokenCreatedBy")
   usedRegistrationTokens    RegistrationToken[] @relation("RegistrationTokenUsedBy")
   auditLogEntries     AuditLogEntry[]
+  platformEmailConfigUpdates PlatformEmailConfig[] @relation("PlatformEmailConfigUpdatedBy")
 
   ownedProjects       Project[]            @relation("ProjectOwner")
   projectMemberships  ProjectMembership[]
@@ -744,4 +751,39 @@ model ActivityEvent {
   @@index([projectId, createdAt])
   @@index([categoryId])
   @@map("activity_events")
+}
+
+// ---------------------------------------------------------------------------
+// Platform-wide outbound email configuration
+// ---------------------------------------------------------------------------
+
+/// Instance-wide outbound email configuration. Deliberately a SINGLE-ROW
+/// table pinned to id = "singleton" (enforced by a hand-written CHECK
+/// constraint in the migration, since Prisma cannot model CHECK): the
+/// product requirement is one mail configuration for the whole ProjectHub
+/// installation, and a fixed PK makes that unrepresentable-otherwise
+/// rather than merely conventional.
+///
+/// Absent row OR enabled = false both mean "email is not configured" and
+/// both fall back to the dev console transport — the app keeps working,
+/// mail just isn't sent (see email.service.ts).
+model PlatformEmailConfig {
+  id                 String       @id @default("singleton")
+  enabled            Boolean      @default(false)
+  host               String
+  port               Int
+  security           SmtpSecurity @default(starttls)
+  /// Null for unauthenticated / IP-allowlisted relays.
+  username           String?
+  /// AES-256-GCM envelope produced by core/secret-box.ts. NEVER returned
+  /// by any serializer — the API exposes only `hasPassword: boolean`.
+  passwordCiphertext String?
+  fromAddress        String
+  fromName           String?
+  updatedById        String?
+  updatedBy          User?        @relation("PlatformEmailConfigUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@map("platform_email_configs")
 }

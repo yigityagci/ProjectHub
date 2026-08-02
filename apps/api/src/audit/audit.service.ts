@@ -38,7 +38,10 @@ export type AuditAction =
   | "password_change.failed"
   | "registration_token.generated"
   | "registration_token.revoked"
-  | "user.registered";
+  | "user.registered"
+  | "platform.email_config.updated"
+  | "platform.email_config.deleted"
+  | "platform.email_config.test_sent";
 
 export interface RecordAuditEventInput {
   workspaceId?: string | null;
