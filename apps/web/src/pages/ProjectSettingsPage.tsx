@@ -5,6 +5,7 @@ import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
 import NotificationBell from "../components/NotificationBell.js";
 import ThemeToggle from "../components/ThemeToggle.js";
+import ProjectCustomFieldsPanel from "./ProjectCustomFieldsPanel.js";
 import type { CurrentUser } from "../App.js";
 
 interface Project {
@@ -27,6 +28,13 @@ const CAN_EDIT_PROJECT_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
 // Mirrors `project.delete`'s grant — deliberately NOT the same set as above:
 // PROJECT_MANAGER can edit/archive a project but cannot delete it.
 const CAN_DELETE_PROJECT_ROLES = new Set(["OWNER", "ADMIN"]);
+
+// Mirrors `custom_field.manage`'s grant — identical role set to
+// `project.edit` above (see packages/shared/src/roles.ts), kept as its own
+// named constant since the two permissions are independent server-side even
+// though the default role grants happen to coincide (same convention as
+// KanbanBoardPage.tsx's CAN_MANAGE_BOARD_ROLES/CAN_MANAGE_CATEGORY_ROLES).
+const CAN_MANAGE_CUSTOM_FIELDS_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
 
 function toDateInputValue(value: string | null): string {
   if (!value) return "";
@@ -91,6 +99,7 @@ export default function ProjectSettingsPage({ user }: { user: CurrentUser }) {
 
   const canEdit = role !== null && CAN_EDIT_PROJECT_ROLES.has(role);
   const canDelete = role !== null && CAN_DELETE_PROJECT_ROLES.has(role);
+  const canManageCustomFields = role !== null && CAN_MANAGE_CUSTOM_FIELDS_ROLES.has(role);
 
   async function handleSave(e: FormEvent) {
     e.preventDefault();
@@ -186,7 +195,7 @@ export default function ProjectSettingsPage({ user }: { user: CurrentUser }) {
 
         {!loadError && project === null ? (
           <p>Loading...</p>
-        ) : !loadError && !canEdit && !canDelete ? (
+        ) : !loadError && !canEdit && !canDelete && !canManageCustomFields ? (
           <div className="ph-empty-state">You don't have access to manage this project's settings.</div>
         ) : (
           !loadError &&
@@ -283,6 +292,10 @@ export default function ProjectSettingsPage({ user }: { user: CurrentUser }) {
                     {archiveBusy ? "Working..." : project.archived ? "Unarchive project" : "Archive project"}
                   </button>
                 </div>
+              )}
+
+              {canManageCustomFields && workspaceId && projectId && (
+                <ProjectCustomFieldsPanel workspaceId={workspaceId} projectId={projectId} />
               )}
 
               {canDelete && (

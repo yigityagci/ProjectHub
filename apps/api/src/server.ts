@@ -26,6 +26,7 @@ import { registerCategoryRoutes } from "./projects/categories.routes.js";
 import { registerColumnRoutes } from "./projects/columns.routes.js";
 import { registerTaskRoutes } from "./projects/tasks.routes.js";
 import { registerLabelRoutes } from "./projects/labels.routes.js";
+import { registerCustomFieldRoutes } from "./projects/custom-fields.routes.js";
 import { registerMilestoneRoutes } from "./projects/milestones.routes.js";
 import { registerCommentRoutes } from "./comments/comments.routes.js";
 import { registerAttachmentRoutes } from "./attachments/attachments.routes.js";
@@ -132,6 +133,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await registerColumnRoutes(app);
   await registerTaskRoutes(app);
   await registerLabelRoutes(app);
+  await registerCustomFieldRoutes(app);
   await registerMilestoneRoutes(app);
   await registerCommentRoutes(app);
   await registerAttachmentRoutes(app);

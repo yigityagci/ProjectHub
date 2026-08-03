@@ -109,3 +109,117 @@ export const taskListQuerySchema = z
   })
   .strict();
 export type TaskListQuery = z.infer<typeof taskListQuerySchema>;
+
+/**
+ * Bulk task actions (`POST .../tasks/bulk`). Deliberately 1:1 with the
+ * existing single-task routes rather than collapsed into one generic
+ * "update" shape — each variant is `.strict()`, so e.g. `beforeTaskId` on
+ * `move`, or `versions` on `delete`, is a 422. Comment-adding is explicitly
+ * excluded from bulk actions in v1.
+ */
+export const BULK_TASK_ACTIONS = [
+  "move",
+  "assign",
+  "unassign",
+  "addLabel",
+  "removeLabel",
+  "setPriority",
+  "delete",
+] as const;
+export type BulkTaskAction = (typeof BULK_TASK_ACTIONS)[number];
+
+/** Per-task result error codes. NOT_IN_CATEGORY deliberately also covers
+ * "no such task at all" — the server must not distinguish those two (same
+ * rationale as getTaskOrThrow's single TASK_NOT_FOUND_MESSAGE). */
+export const BULK_TASK_ERROR_CODES = ["NOT_IN_CATEGORY", "VERSION_CONFLICT"] as const;
+export type BulkTaskErrorCode = (typeof BULK_TASK_ERROR_CODES)[number];
+
+export const BULK_TASK_MAX_IDS = 100;
+
+const bulkTaskIdsSchema = z
+  .array(z.string().min(1))
+  .min(1, "Select at least one task.")
+  .max(BULK_TASK_MAX_IDS, `You can act on at most ${BULK_TASK_MAX_IDS} tasks at a time.`);
+
+/** Optimistic-concurrency preconditions keyed by task id. Present ONLY on the
+ * actions whose single-task equivalents require `version`
+ * (updateTaskSchema / moveTaskSchema) — never optional, so bulk can never be
+ * used as a version-check bypass. */
+const bulkVersionsSchema = z.record(z.string().min(1), z.number().int().nonnegative());
+
+export const bulkTaskActionSchema = z
+  .discriminatedUnion("action", [
+    z
+      .object({
+        action: z.literal("move"),
+        taskIds: bulkTaskIdsSchema,
+        versions: bulkVersionsSchema,
+        columnId: z.string().min(1, "columnId is required."),
+      })
+      .strict(),
+    z
+      .object({
+        action: z.literal("setPriority"),
+        taskIds: bulkTaskIdsSchema,
+        versions: bulkVersionsSchema,
+        priority: taskPrioritySchema,
+      })
+      .strict(),
+    z
+      .object({
+        action: z.literal("assign"),
+        taskIds: bulkTaskIdsSchema,
+        userId: z.string().min(1, "userId is required."),
+      })
+      .strict(),
+    z
+      .object({
+        action: z.literal("unassign"),
+        taskIds: bulkTaskIdsSchema,
+        userId: z.string().min(1, "userId is required."),
+      })
+      .strict(),
+    z
+      .object({
+        action: z.literal("addLabel"),
+        taskIds: bulkTaskIdsSchema,
+        labelId: z.string().min(1, "labelId is required."),
+      })
+      .strict(),
+    z
+      .object({
+        action: z.literal("removeLabel"),
+        taskIds: bulkTaskIdsSchema,
+        labelId: z.string().min(1, "labelId is required."),
+      })
+      .strict(),
+    z
+      .object({
+        action: z.literal("delete"),
+        taskIds: bulkTaskIdsSchema,
+      })
+      .strict(),
+  ])
+  .superRefine((value, ctx) => {
+    if (!("versions" in value)) return;
+    const unique = new Set(value.taskIds);
+    for (const id of unique) {
+      if (value.versions[id] === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "A version is required for every selected task.",
+        });
+        return;
+      }
+    }
+    for (const id of Object.keys(value.versions)) {
+      if (!unique.has(id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "versions contains a task that was not selected.",
+        });
+        return;
+      }
+    }
+  });
+export type BulkTaskActionInput = z.infer<typeof bulkTaskActionSchema>;

@@ -76,6 +76,20 @@ enum ColumnCategory {
   done
 }
 
+// Custom-field types for project-scoped CustomFieldDefinition. `multi_select`
+// is snake_case because Prisma enum members must be valid identifiers —
+// mirrors ColumnCategory's `in_progress`, and is the literal wire value used
+// by packages/shared's CUSTOM_FIELD_TYPES.
+enum CustomFieldType {
+  text
+  number
+  date
+  select
+  multi_select
+  checkbox
+  url
+}
+
 enum NotificationType {
   mention
   task_assigned
@@ -217,6 +231,8 @@ model Workspace {
   taskLabels          TaskLabel[]
   milestones          Milestone[]
   taskDependencies    TaskDependency[]
+  customFieldDefinitions CustomFieldDefinition[]
+  customFieldValues      CustomFieldValue[]
 
   comments       Comment[]
   mentions       Mention[]
@@ -374,6 +390,7 @@ model Project {
   milestones     Milestone[]
   dependencies   TaskDependency[]
   activityEvents ActivityEvent[]
+  customFields   CustomFieldDefinition[]
 
   @@index([workspaceId])
   @@index([ownerId])
@@ -536,6 +553,7 @@ model Task {
   blockingEdges  TaskDependency[] @relation("TaskBlocking")
   comments       Comment[]
   attachments    Attachment[]
+  customFieldValues CustomFieldValue[]
 
   @@index([workspaceId])
   @@index([projectId, columnId, position])
@@ -592,6 +610,80 @@ model TaskLabel {
   @@index([workspaceId])
   @@index([labelId])
   @@map("task_labels")
+}
+
+// A project-scoped, typed field definition. Shape mirrors Label (the other
+// project-scoped, permission-gated definition entity) with two deliberate
+// additions: `position`, because unlike labels these are user-reorderable
+// (see the reorder endpoint + position.ts#rebalancePositions), and
+// `updatedAt`, because unlike a label a definition is meaningfully edited
+// over time (mirrors BoardColumn, the other reorderable definition entity).
+//
+// `type` is IMMUTABLE once created and there is deliberately no route that
+// can change it: every stored CustomFieldValue.value was validated against
+// exactly one type, and reinterpreting that JSON under a different validator
+// has no safe migration. Renaming, and editing a select's `options`, are both
+// allowed; see CustomFieldValue below for the stale-value policy that implies.
+model CustomFieldDefinition {
+  id          String          @id @default(uuid())
+  workspaceId String
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId   String
+  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  type        CustomFieldType
+  // The allowed option list for `select`/`multi_select` only: a JSON array of
+  // unique, non-empty strings. Always `[]` for the other five types. Prisma
+  // cannot express "this Json column's shape depends on that enum column", so
+  // this invariant is enforced in packages/shared's create/update schemas and
+  // re-checked in custom-fields.service.ts — never by the database.
+  options     Json            @default("[]")
+  position    Float
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  values CustomFieldValue[]
+
+  @@unique([projectId, name])
+  @@index([workspaceId])
+  @@index([projectId, position])
+  @@map("custom_field_definitions")
+}
+
+// A thin task<->definition join row, mirroring TaskLabel/TaskAssignee's
+// workspaceId-ONLY denormalization. It deliberately does NOT carry projectId
+// or categoryId, unlike the full parent-chain convention that primary
+// entities (Task, BoardColumn) follow: this is a value-holding join table
+// reached only via an already-scoped task, never queried by project or
+// category on its own.
+//
+// `value` is non-nullable. "No value set" is represented by the ABSENCE of
+// this row, never by a JSON null, so there is exactly one representation of
+// the empty state (the value PUT rejects a null body value with a 422; the
+// DELETE route clears).
+//
+// Stale-value policy: editing a definition's `options` (e.g. removing an
+// option that tasks already use) leaves these rows completely untouched. They
+// become unenforced legacy data, surfaced as `stale: true` by the value read
+// endpoint, and are re-validated against the definition's CURRENT options on
+// the next write. Silently deleting a user's data as a side effect of an
+// unrelated admin edit is unrecoverable, and blocking option removal whenever
+// any task uses that option makes the feature unusable at scale.
+model CustomFieldValue {
+  id          String                @id @default(uuid())
+  workspaceId String
+  workspace   Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  taskId      String
+  task        Task                  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fieldId     String
+  field       CustomFieldDefinition @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  value       Json
+  updatedAt   DateTime              @updatedAt
+
+  @@unique([taskId, fieldId])
+  @@index([workspaceId])
+  @@index([fieldId])
+  @@map("custom_field_values")
 }
 
 model Milestone {

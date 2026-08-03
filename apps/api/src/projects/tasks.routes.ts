@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import type { BulkTaskAction, Permission } from "@projecthub/shared";
 import {
   createTaskSchema,
   updateTaskSchema,
@@ -6,8 +7,9 @@ import {
   addAssigneeSchema,
   createDependencySchema,
   taskListQuerySchema,
+  bulkTaskActionSchema,
 } from "@projecthub/shared";
-import { ValidationError, NotFoundError } from "../core/errors.js";
+import { ValidationError, NotFoundError, ForbiddenError } from "../core/errors.js";
 import {
   requireAuth,
   requireCsrf,
@@ -28,11 +30,32 @@ import {
   addLabel,
   removeLabel,
 } from "./tasks.service.js";
+import { bulkTaskAction } from "./tasks.bulk.service.js";
 import { listDependencies, createDependency, removeDependency } from "./dependencies.service.js";
 import { emitToCategory } from "../realtime/realtime.js";
 import { createNotification } from "../notifications/notifications.service.js";
 import { createActivityEvent, broadcastActivityEvent } from "../activity/activity.service.js";
 import { prisma } from "../core/prisma.js";
+
+/**
+ * Bulk actions are permission-checked per action-type inside the handler
+ * (not via one guard-chain requirePermission), since different actions
+ * require different permissions. This is a `Record<BulkTaskAction,
+ * Permission>` — deliberately total, not partial — so a future bulk action
+ * can never ship without an explicit permission decision.
+ */
+const BULK_ACTION_PERMISSION: Record<BulkTaskAction, Permission> = {
+  move: "task.edit",
+  setPriority: "task.edit",
+  addLabel: "task.edit",
+  removeLabel: "task.edit",
+  assign: "task.assign",
+  unassign: "task.assign",
+  delete: "task.delete",
+};
+
+/** Caps request amplification independent of the `taskIds` <= 100 Zod cap. */
+const BULK_TASK_ACTION_RATE_LIMIT = { max: 30, timeWindow: "1 minute" };
 
 interface TaskWithRelations {
   id: string;
@@ -143,6 +166,89 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
       const serialized = serializeTask(task);
       emitToCategory(req.ctx.category!.id, "task.created", serialized);
       return reply.code(201).send({ task: serialized });
+    },
+  );
+
+  /**
+   * Bulk task actions. Permission is deliberately checked in-handler
+   * against BULK_ACTION_PERMISSION (per action-type), not via a single
+   * requirePermission(...) preHandler — different actions require
+   * different permissions. Always 200 on a well-formed, permitted request,
+   * even if every task in the batch errored: a partial failure is visible
+   * per-task in `results`, never collapsed into one whole-batch pass/fail.
+   */
+  app.post(
+    "/api/workspaces/:workspaceId/projects/:projectId/categories/:categoryId/tasks/bulk",
+    {
+      config: { rateLimit: BULK_TASK_ACTION_RATE_LIMIT },
+      preHandler: [requireAuth, requireCsrf, requireMembership, requireProjectAccess, requireCategoryAccess],
+    },
+    async (req, reply) => {
+      const parsed = bulkTaskActionSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new ValidationError(parsed.error.issues[0]?.message ?? "Invalid input.");
+      }
+
+      const requiredPermission = BULK_ACTION_PERMISSION[parsed.data.action];
+      if (!req.ctx.permissions?.has(requiredPermission)) {
+        throw new ForbiddenError();
+      }
+
+      const result = await bulkTaskAction({
+        workspaceId: req.ctx.workspace!.id,
+        projectId: req.ctx.project!.id,
+        categoryId: req.ctx.category!.id,
+        actor: { id: req.ctx.user!.id, displayName: req.ctx.user!.displayName },
+        input: parsed.data,
+      });
+
+      for (const item of result.results) {
+        if (item.status !== "success") continue;
+        if (result.action === "delete") {
+          emitToCategory(req.ctx.category!.id, "task.deleted", { id: item.taskId });
+        } else if (item.task) {
+          const serialized = serializeTask(item.task);
+          emitToCategory(req.ctx.category!.id, result.action === "move" ? "task.moved" : "task.updated", serialized);
+        }
+      }
+      for (const cascadedId of result.cascadedDeletedTaskIds) {
+        emitToCategory(req.ctx.category!.id, "task.deleted", { id: cascadedId });
+      }
+      for (const notif of result.assignedNotifications) {
+        await createNotification({
+          workspaceId: req.ctx.workspace!.id,
+          recipientUserId: notif.recipientUserId,
+          type: "task_assigned",
+          payload: {
+            taskId: notif.taskId,
+            projectId: req.ctx.project!.id,
+            categoryId: req.ctx.category!.id,
+            assignedBy: req.ctx.user!.id,
+          },
+        });
+      }
+
+      const summary = {
+        requested: result.results.length,
+        succeeded: result.results.filter((r) => r.status === "success").length,
+        failed: result.results.filter((r) => r.status === "error").length,
+      };
+
+      return reply.code(200).send({
+        action: result.action,
+        results: result.results.map((r) =>
+          r.status === "success"
+            ? { taskId: r.taskId, status: "success", task: r.task ? serializeTask(r.task) : null }
+            : {
+                taskId: r.taskId,
+                status: "error",
+                code: r.code,
+                message: r.message,
+                currentTask: r.currentTask ? serializeTask(r.currentTask) : null,
+              },
+        ),
+        summary,
+      });
     },
   );
 

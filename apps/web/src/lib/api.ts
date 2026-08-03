@@ -1,5 +1,33 @@
+import type { BulkTaskAction, BulkTaskErrorCode } from "@projecthub/shared";
+import type { Task } from "../pages/task-types.js";
+
 export interface ApiErrorBody {
   error: { code: string; message: string; requestId?: string };
+}
+
+/**
+ * Discriminated request shape for `POST {categoryBase}/tasks/bulk`, kept 1:1
+ * with `bulkTaskActionSchema` (packages/shared/src/dto/task.ts) — each
+ * variant is `.strict()` server-side, so sending an extra field (e.g.
+ * `versions` on `assign`) is a 422, not a silently-ignored no-op.
+ */
+export type BulkTaskActionInput =
+  | { action: "move"; taskIds: string[]; versions: Record<string, number>; columnId: string }
+  | { action: "setPriority"; taskIds: string[]; versions: Record<string, number>; priority: Task["priority"] }
+  | { action: "assign"; taskIds: string[]; userId: string }
+  | { action: "unassign"; taskIds: string[]; userId: string }
+  | { action: "addLabel"; taskIds: string[]; labelId: string }
+  | { action: "removeLabel"; taskIds: string[]; labelId: string }
+  | { action: "delete"; taskIds: string[] };
+
+export type BulkTaskItemResult =
+  | { taskId: string; status: "success"; task: Task | null }
+  | { taskId: string; status: "error"; code: BulkTaskErrorCode; message: string; currentTask: Task | null };
+
+export interface BulkTaskActionResponse {
+  action: BulkTaskAction;
+  results: BulkTaskItemResult[];
+  summary: { requested: number; succeeded: number; failed: number };
 }
 
 // The API's base URL as reachable from the browser. In local development
@@ -108,9 +136,18 @@ export const api = {
   get: <T>(path: string) => request<T>("GET", path),
   post: <T>(path: string, body?: unknown) => request<T>("POST", path, body ?? {}),
   patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body ?? {}),
+  put: <T>(path: string, body?: unknown) => request<T>("PUT", path, body ?? {}),
   delete: <T>(path: string) => request<T>("DELETE", path),
   upload: <T>(path: string, file: File) => uploadFile<T>(path, file),
   download: (path: string) => downloadFile(path),
+  // `categoryBase` is the caller's already-built
+  // `/api/workspaces/:workspaceId/projects/:projectId/categories/:categoryId`
+  // prefix (see KanbanBoardPage's `base`) — this always resolves 200 once
+  // past whole-request validation/permission (see BulkTaskActionResponse),
+  // so a thrown ApiError here always means a whole-request failure
+  // (422/403/404), never a per-task one.
+  bulkTaskAction: (categoryBase: string, input: BulkTaskActionInput) =>
+    request<BulkTaskActionResponse>("POST", `${categoryBase}/tasks/bulk`, input),
 };
 
 // Ensure a CSRF cookie exists before the first mutating request (e.g. on

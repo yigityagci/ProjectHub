@@ -702,6 +702,16 @@ select:disabled {
   color: var(--ph-primary);
 }
 
+/* Task detail modal's custom-fields section: flags a value whose field
+   `options` changed since it was set (a select/multi_select value that no
+   longer matches the current option list) — reuses the same --ph-warning
+   token as .ph-alert-warning, just sized as a pill rather than a full-width
+   banner. */
+.ph-badge-stale {
+  background: rgba(217, 119, 6, 0.16);
+  color: var(--ph-warning);
+}
+
 /* Priority badges — filled pill, tinted background + matching-hue text
    (used wherever a task's priority is shown as text rather than just the
    compact dot, e.g. the task detail modal's read-only view). */
@@ -1105,6 +1115,151 @@ select:disabled {
 .ph-toast-error {
   background: var(--ph-error);
   color: white;
+}
+
+/* Bulk task actions (Kanban board multi-select): the floating bar and its
+   optional result banner are both children of one fixed, bottom-centered
+   stack rather than each being independently `position: fixed` — that way
+   the banner can sit visually "above" the bar (per spec, never inside it)
+   without either element having to guess the other's rendered height.
+   z-index 52 keeps it above `.ph-toast` (z-index 50, bottom-right) so the
+   two never visually compete even though both can be on-screen together. */
+.ph-bulk-bar-stack {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 52;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.6rem;
+  max-width: min(920px, calc(100vw - 2rem));
+}
+
+.ph-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  background: var(--ph-surface);
+  border: 1px solid var(--ph-border);
+  border-radius: 12px;
+  box-shadow: var(--ph-shadow-lg);
+  padding: 0.75rem 1rem;
+}
+
+.ph-bulk-bar-count {
+  font-weight: 600;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.ph-bulk-bar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.ph-bulk-bar-group select {
+  font-size: 0.82rem;
+  padding: 0.3rem 0.5rem;
+  width: auto;
+}
+
+.ph-bulk-bar-divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--ph-border);
+  flex-shrink: 0;
+}
+
+.ph-bulk-bar-clear {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: none;
+  border: none;
+  padding: 0.2rem 0.3rem;
+  color: var(--ph-muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ph-bulk-bar-clear:hover:not(:disabled) {
+  color: var(--ph-text);
+}
+
+.ph-bulk-bar-clear:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ph-focus-ring);
+}
+
+.ph-bulk-bar-clear:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Partial/total per-task bulk-action failure banner — same visual language
+   as .ph-conflict-banner (amber/warning), with an .ph-bulk-result-banner-error
+   variant (reusing --ph-error) for the "every task in the batch failed"
+   case. Never used for whole-request failures (422/403/404), which stay a
+   plain .ph-toast-error instead. */
+.ph-bulk-result-banner {
+  background: rgba(217, 119, 6, 0.12);
+  border: 1px solid var(--ph-warning);
+  border-radius: 10px;
+  padding: 0.7rem 1rem;
+  font-size: 0.85rem;
+}
+
+.ph-bulk-result-banner-error {
+  background: rgba(220, 38, 38, 0.1);
+  border-color: var(--ph-error);
+}
+
+.ph-bulk-result-banner-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.ph-bulk-result-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.ph-bulk-result-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.78rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--ph-border);
+  border-radius: 8px;
+  background: var(--ph-surface-2);
+}
+
+.ph-bulk-result-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ph-bulk-result-item-reason {
+  color: var(--ph-muted);
+  white-space: nowrap;
 }
 
 /* Task detail modal */
@@ -1554,6 +1709,285 @@ select:disabled {
   padding: 0.45rem 0.75rem;
 }
 
+/* Alternate Board Views — List view: a sortable table alongside the
+   existing Kanban board, sharing the same .ph-filter-bar search/filter
+   state above. Scroll container mirrors .ph-card's border/radius
+   conventions so the table reads as one cohesive surface with the rest of
+   the page. */
+.ph-list-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--ph-border);
+  border-radius: 14px;
+  background: var(--ph-surface);
+}
+
+.ph-list-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.ph-list-table th {
+  text-align: left;
+  padding: 0.65rem 0.9rem;
+  background: var(--ph-surface-2);
+  border-bottom: 1px solid var(--ph-border);
+  /* Muted, small-caps-ish label treatment consistent with other secondary
+     table/list headings in this file. */
+  color: var(--ph-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.ph-list-table td {
+  padding: 0.65rem 0.9rem;
+  border-bottom: 1px solid var(--ph-border);
+  vertical-align: middle;
+}
+
+.ph-list-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Row hover affordance — the whole row opens the task (see the `<tr
+   onClick>` in KanbanBoardPage.tsx's ListView), so it needs a visible
+   "clickable" cue beyond just the title button. */
+.ph-list-row {
+  cursor: pointer;
+}
+
+.ph-list-row:hover {
+  background: var(--ph-surface-2);
+}
+
+/* Header sort buttons and the title-cell open button both reset to plain
+   text so they read as table content, not form controls, while staying
+   focusable/keyboard-activatable. */
+.ph-list-sort-button,
+.ph-list-title-open {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  cursor: pointer;
+  color: inherit;
+}
+
+.ph-list-title-open {
+  font-weight: 600;
+  text-align: left;
+}
+
+.ph-list-title-open:hover,
+.ph-list-sort-button:hover {
+  text-decoration: underline;
+}
+
+.ph-list-title-open:focus-visible,
+.ph-list-sort-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ph-focus-ring);
+}
+
+.ph-list-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+/* Flags a past-due date in the List view's Due Date column — same signal
+   as the "Overdue only" filter checkbox already on this page, just applied
+   per-row instead of as a filter. */
+.ph-list-overdue {
+  color: var(--ph-error);
+  font-weight: 600;
+}
+
+/* Alternate Board Views — Calendar view: a month grid alongside the
+   existing Kanban board/List views, sharing the same .ph-filter-bar
+   search/filter state above. Task chips inside day cells and rows in the
+   Unscheduled section both open the same TaskDetailModal via onOpenTask,
+   mirroring the List view's row/title-button interaction pattern. */
+.ph-calendar-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+}
+
+.ph-calendar-nav .ph-button {
+  width: auto;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.85rem;
+}
+
+.ph-calendar-nav-label {
+  font-weight: 700;
+  font-size: 1rem;
+  min-width: 10rem;
+  text-align: center;
+}
+
+.ph-calendar-filter-note {
+  color: var(--ph-muted);
+  font-size: 0.85rem;
+}
+
+.ph-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  background: var(--ph-border);
+  border: 1px solid var(--ph-border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.ph-calendar-weekday {
+  background: var(--ph-surface-2);
+  color: var(--ph-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.5rem 0.6rem;
+  text-align: left;
+}
+
+.ph-calendar-day {
+  background: var(--ph-surface);
+  min-height: 6.5rem;
+  padding: 0.4rem 0.45rem;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.ph-calendar-day-blank {
+  background: var(--ph-surface-2);
+  min-height: 6.5rem;
+}
+
+.ph-calendar-day-today {
+  background: rgba(var(--ph-primary-rgb), 0.08);
+  box-shadow: inset 0 0 0 2px var(--ph-primary);
+}
+
+.ph-calendar-day-number {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ph-muted);
+}
+
+.ph-calendar-day-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-height: 0;
+}
+
+/* Task chip buttons inside a day cell — reset to plain-text button styling
+   like .ph-list-title-open, with single-line ellipsis truncation so a long
+   title never grows the day cell's height. */
+.ph-calendar-task-chip,
+.ph-calendar-more-toggle {
+  border: none;
+  background: none;
+  padding: 0.1rem 0.2rem;
+  margin: 0;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 4px;
+}
+
+.ph-calendar-task-chip:hover {
+  background: var(--ph-hover-tint);
+}
+
+.ph-calendar-task-chip:focus-visible,
+.ph-calendar-more-toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ph-focus-ring);
+}
+
+/* Flags a past-due task chip — same signal as .ph-list-overdue, applied
+   per-chip rather than per-row since a day cell can mix overdue and
+   upcoming tasks. */
+.ph-calendar-task-chip-overdue {
+  color: var(--ph-error);
+  font-weight: 600;
+}
+
+.ph-calendar-more-toggle {
+  color: var(--ph-muted);
+  font-weight: 600;
+}
+
+.ph-calendar-more-toggle:hover {
+  text-decoration: underline;
+}
+
+.ph-calendar-unscheduled {
+  margin-top: 1.25rem;
+}
+
+.ph-calendar-unscheduled h3 {
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+}
+
+.ph-calendar-unscheduled-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--ph-border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--ph-surface);
+}
+
+/* Unscheduled row buttons mirror .ph-list-row/.ph-list-title-open: a real
+   <button> (not a div onClick) for keyboard/a11y access, full-width so the
+   whole row reads as clickable. */
+.ph-calendar-unscheduled-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-bottom: 1px solid var(--ph-border);
+  background: none;
+  font: inherit;
+  padding: 0.6rem 0.9rem;
+  cursor: pointer;
+  color: inherit;
+}
+
+.ph-calendar-unscheduled-row:last-child {
+  border-bottom: none;
+}
+
+.ph-calendar-unscheduled-row:hover {
+  background: var(--ph-surface-2);
+}
+
+.ph-calendar-unscheduled-row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 3px var(--ph-focus-ring);
+}
+
 /* Responsive polish pass (Phase 7): narrow-viewport fixes for surfaces
    added in Phases 3-6 that hadn't been audited against small screens yet
    (the Kanban board's horizontal column scroll and the task detail modal's
@@ -1599,6 +2033,17 @@ select:disabled {
     right: 0.75rem;
     bottom: 0.75rem;
     max-width: calc(100vw - 1.5rem);
+  }
+
+  .ph-bulk-bar-stack {
+    bottom: 0.75rem;
+    width: calc(100vw - 1.5rem);
+    max-width: calc(100vw - 1.5rem);
+  }
+
+  .ph-bulk-bar {
+    width: 100%;
+    padding: 0.6rem 0.75rem;
   }
 }
 

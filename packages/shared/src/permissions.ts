@@ -37,6 +37,9 @@ export const PERMISSIONS = [
 
   // Categories (Project -> Category -> Task isolation tier)
   "category.manage",
+
+  // Custom fields on tasks (project-scoped typed field definitions)
+  "custom_field.manage",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

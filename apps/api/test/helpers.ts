@@ -31,6 +31,8 @@ export async function resetDatabase(): Promise<void> {
       "attachments",
       "task_dependencies",
       "task_labels",
+      "custom_field_values",
+      "custom_field_definitions",
       "labels",
       "task_assignees",
       "tasks",
@@ -116,6 +118,9 @@ export class TestClient {
   }
   patch(url: string, payload?: unknown) {
     return this.request({ method: "PATCH", url, payload });
+  }
+  put(url: string, payload?: unknown) {
+    return this.request({ method: "PUT", url, payload });
   }
   delete(url: string) {
     return this.request({ method: "DELETE", url });

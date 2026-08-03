@@ -33,8 +33,15 @@ import ActivityFeed from "../components/ActivityFeed.js";
 import { IconGrip, IconPencil, IconPlus, IconTrash } from "../components/Icons.js";
 import TaskDetailModal from "./TaskDetailModal.js";
 import CreateTaskModal from "./CreateTaskModal.js";
+import BulkActionBar from "./BulkActionBar.js";
 import type { CurrentUser } from "../App.js";
 import type { Task } from "./task-types.js";
+
+interface ProjectLabel {
+  id: string;
+  name: string;
+  color: string;
+}
 
 interface BoardColumn {
   id: string;
@@ -88,6 +95,24 @@ const CAN_MANAGE_BOARD_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
 // permissions are independent server-side even though the default role
 // grants happen to coincide.
 const CAN_MANAGE_CATEGORY_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
+// Mirrors the `task.assign` permission grant (packages/shared/src/roles.ts —
+// MEMBER has it, unlike task.delete below) — gates the bulk bar's
+// Assign/Unassign controls, independent of `task.edit`'s CAN_EDIT_TASK_ROLES.
+const CAN_ASSIGN_TASK_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER", "MEMBER"]);
+// Mirrors the `task.delete` permission grant — same role set as
+// TaskDetailModal.tsx's local CAN_DELETE_ROLES; gates the bulk bar's Delete
+// control. MEMBER deliberately excluded (matches single-task delete).
+const CAN_DELETE_TASK_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
+
+// List view's Priority column sorts by severity order, not alphabetically
+// (alphabetical would put "high" before "low" before "medium" before
+// "urgent", which is meaningless to a user scanning for what's urgent).
+const PRIORITY_SORT_RANK: Record<Task["priority"], number> = {
+  low: 0,
+  medium: 1,
+  high: 2,
+  urgent: 3,
+};
 
 function midpointPosition(prev: number | null, next: number | null): number {
   if (prev === null && next === null) return 1;
@@ -102,12 +127,20 @@ function TaskCard({
   draggable,
   canToggleComplete,
   onToggleComplete,
+  selectable,
+  selected,
+  selectionDisabled,
+  onToggleSelect,
 }: {
   task: Task;
   onOpen: () => void;
   draggable: boolean;
   canToggleComplete: boolean;
   onToggleComplete: (task: Task, completed: boolean) => void;
+  selectable: boolean;
+  selected: boolean;
+  selectionDisabled: boolean;
+  onToggleSelect: (task: Task, selected: boolean) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
@@ -128,6 +161,21 @@ function TaskCard({
       {...(draggable ? listeners : {})}
     >
       <div className="ph-task-card-row">
+        {selectable && (
+          <input
+            type="checkbox"
+            className="ph-task-checkbox"
+            checked={selected}
+            disabled={selectionDisabled}
+            aria-label={`Select "${task.title}"`}
+            title={selectionDisabled ? "You can only select up to 100 tasks at once" : "Select task"}
+            // Same rationale as the completion checkbox below: this is an
+            // independent control, never the card-open/drag trigger.
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => onToggleSelect(task, e.target.checked)}
+          />
+        )}
         {canToggleComplete && (
           <input
             type="checkbox"
@@ -181,7 +229,22 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
   const [toast, setToast] = useState<{ message: string; error?: boolean } | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [createTaskColumnId, setCreateTaskColumnId] = useState<string | null>(null);
-  const [view, setView] = useState<"board" | "activity">("board");
+  const [view, setView] = useState<"board" | "activity" | "list" | "calendar">("board");
+
+  // List view (Alternate Board Views): sortable table over the exact same
+  // `filteredTasks` the Board view's columns are built from — no separate
+  // fetch/filter state. Default sort is due-date ascending (soonest-due
+  // first), the most actionable default for a flat task list.
+  const [listSortKey, setListSortKey] = useState<
+    "title" | "assignee" | "priority" | "dueDate" | "column" | "labels"
+  >("dueDate");
+  const [listSortDir, setListSortDir] = useState<"asc" | "desc">("asc");
+
+  // Bulk task actions: selection is scoped to this one category's board —
+  // never preserved across a category/board switch (see the load()-keyed
+  // effect below, which wipes it unconditionally on every such switch).
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const [projectLabels, setProjectLabels] = useState<ProjectLabel[]>([]);
 
   // Category management (rename/visibility/members/delete) — same
   // simple-inline-form pattern as column management below, gated on
@@ -229,7 +292,8 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     setTimeout(() => setToast(null), 4000);
   }
 
-  const base = `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}`;
+  const projectBase = `/api/workspaces/${workspaceId}/projects/${projectId}`;
+  const base = `${projectBase}/categories/${categoryId}`;
 
   async function load() {
     if (!workspaceId || !projectId || !categoryId) return;
@@ -263,13 +327,57 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
         return;
       }
       showToast("Could not load this board. Please try again.", true);
+      return;
+    }
+
+    // Eagerly load workspace members and the project's full label catalog so
+    // the bulk-action bar's Assign/Add-label pickers already have data as
+    // soon as the bar appears — previously these were only fetched lazily
+    // inside openCategoryManager(), which the bulk bar never calls. Failure
+    // here is non-critical to the board itself (same posture as
+    // openCategoryManager's own best-effort fetch), so it's a separate,
+    // non-fatal try/catch.
+    try {
+      const [membersRes, labelsRes] = await Promise.all([
+        api.get<{ members: WorkspaceMember[] }>(`/api/workspaces/${workspaceId}/members`),
+        api.get<{ labels: ProjectLabel[] }>(`${projectBase}/labels`),
+      ]);
+      setWorkspaceMembers(membersRes.members);
+      setProjectLabels(labelsRes.labels);
+    } catch {
+      // Non-critical — only the bulk bar's Assign/Add-label pickers would
+      // show stale/empty options.
     }
   }
 
   useEffect(() => {
+    // Selection is scoped to one category's board at a time — never
+    // preserved across a category/board switch.
+    setSelectedTaskIds(new Set());
     load().catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, projectId, categoryId]);
+
+  // Keeps `selectedTaskIds` from ever pointing at a task no longer present
+  // locally — covers the `board.column.changed` full-refetch case (and is a
+  // harmless no-op backstop for every other tasks-state update, including
+  // this bar's own bulk-mutation results, which already prune succeeded ids
+  // themselves).
+  useEffect(() => {
+    setSelectedTaskIds((prev) => {
+      if (prev.size === 0) return prev;
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (tasks.some((t) => t.id === id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [tasks]);
 
   // Real-time collaboration: join this board's workspace/project/category
   // rooms and live-apply task/board events pushed by other users' REST
@@ -296,6 +404,14 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     const onTaskDeleted = ({ id }: { id: string }) => {
       setTasks((prev) => prev.filter((t) => t.id !== id));
       setSelectedTaskId((prev) => (prev === id ? null : prev));
+      // Silently drop it from the bulk selection too — no toast, the bar's
+      // count just decrements (and hides entirely if this was the last id).
+      setSelectedTaskIds((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     };
     const onBoardColumnChanged = () => {
       load().catch(() => undefined);
@@ -367,6 +483,66 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     setOverdueOnly(false);
   }
 
+  // List view: same `filteredTasks` as the Board view, just re-sorted per
+  // whichever column header was last clicked. `columns` is a dependency
+  // because the "Column" sort key resolves each task's columnId to a
+  // display name before comparing.
+  const sortedListTasks = useMemo(() => {
+    const dir = listSortDir === "asc" ? 1 : -1;
+    const columnName = (t: Task) => columns?.find((c) => c.id === t.columnId)?.name ?? "";
+    const firstAssignee = (t: Task) => t.assignees[0]?.displayName ?? "";
+    const firstLabel = (t: Task) => t.labels[0]?.name ?? "";
+
+    // Ascending-oriented comparator for keys where "value present" is
+    // universal (assignee/priority/title/column always have *some* value to
+    // compare, even if it's an empty string for "no assignee"). Null-having
+    // keys (dueDate/labels) are special-cased below via `isEmptyForSort` so
+    // "no value" always sorts last in both directions, never inverted by
+    // `dir` the way a real value comparison is.
+    function baseCompare(a: Task, b: Task): number {
+      switch (listSortKey) {
+        case "title":
+          return a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+        case "assignee":
+          return firstAssignee(a).localeCompare(firstAssignee(b), undefined, { sensitivity: "base" });
+        case "priority":
+          return PRIORITY_SORT_RANK[a.priority] - PRIORITY_SORT_RANK[b.priority];
+        case "dueDate":
+          return new Date(a.dueDate as string).getTime() - new Date(b.dueDate as string).getTime();
+        case "column":
+          return columnName(a).localeCompare(columnName(b), undefined, { sensitivity: "base" });
+        case "labels":
+          return firstLabel(a).localeCompare(firstLabel(b), undefined, { sensitivity: "base" });
+        default:
+          return 0;
+      }
+    }
+
+    function isEmptyForSort(t: Task): boolean {
+      if (listSortKey === "dueDate") return !t.dueDate;
+      if (listSortKey === "labels") return t.labels.length === 0;
+      return false;
+    }
+
+    return [...filteredTasks].sort((a, b) => {
+      const aEmpty = isEmptyForSort(a);
+      const bEmpty = isEmptyForSort(b);
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1; // empty always last, regardless of listSortDir
+      if (bEmpty) return -1;
+      return baseCompare(a, b) * dir;
+    });
+  }, [filteredTasks, listSortKey, listSortDir, columns]);
+
+  function handleListSort(key: typeof listSortKey) {
+    if (listSortKey === key) {
+      setListSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setListSortKey(key);
+      setListSortDir("asc");
+    }
+  }
+
   const tasksByColumn = useMemo(() => {
     const map = new Map<string, Task[]>();
     for (const t of filteredTasks) {
@@ -403,6 +579,21 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
   const canCreateTasks = role !== null && CAN_CREATE_TASK_ROLES.has(role);
   const canManageBoard = role !== null && CAN_MANAGE_BOARD_ROLES.has(role);
   const canManageCategory = role !== null && CAN_MANAGE_CATEGORY_ROLES.has(role);
+  const canAssignTasks = role !== null && CAN_ASSIGN_TASK_ROLES.has(role);
+  const canDeleteTasks = role !== null && CAN_DELETE_TASK_ROLES.has(role);
+  const canBulkSelect = canEditTasks || canAssignTasks || canDeleteTasks;
+
+  function handleToggleTaskSelected(task: Task, selected: boolean) {
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (selected) {
+        next.add(task.id);
+      } else {
+        next.delete(task.id);
+      }
+      return next;
+    });
+  }
 
   /**
    * Resolves whatever `over.id` dnd-kit's collision detection landed on to
@@ -660,6 +851,12 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
   function handleTaskDeleted(taskId: string) {
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
     setSelectedTaskId(null);
+    setSelectedTaskIds((prev) => {
+      if (!prev.has(taskId)) return prev;
+      const next = new Set(prev);
+      next.delete(taskId);
+      return next;
+    });
   }
 
   // ---------------------------------------------------------------------
@@ -888,6 +1085,20 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
           </button>
           <button
             type="button"
+            className={`ph-subnav-link whitespace-nowrap${view === "list" ? " ph-subnav-active" : ""}`}
+            onClick={() => setView("list")}
+          >
+            List
+          </button>
+          <button
+            type="button"
+            className={`ph-subnav-link whitespace-nowrap${view === "calendar" ? " ph-subnav-active" : ""}`}
+            onClick={() => setView("calendar")}
+          >
+            Calendar
+          </button>
+          <button
+            type="button"
             className={`ph-subnav-link whitespace-nowrap${view === "activity" ? " ph-subnav-active" : ""}`}
             onClick={() => setView("activity")}
           >
@@ -901,7 +1112,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
           </Link>
         </div>
 
-        {view === "board" && (
+        {(view === "board" || view === "list" || view === "calendar") && (
           <div className="ph-filter-bar">
             <input
               type="search"
@@ -959,6 +1170,22 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
 
         {view === "activity" ? (
           workspaceId && projectId ? <ActivityFeed workspaceId={workspaceId} projectId={projectId} /> : null
+        ) : view === "list" ? (
+          <ListView
+            tasks={sortedListTasks}
+            columns={columns}
+            hasActiveTaskFilters={hasActiveTaskFilters}
+            sortKey={listSortKey}
+            sortDir={listSortDir}
+            onSort={handleListSort}
+            onOpenTask={(taskId) => setSelectedTaskId(taskId)}
+          />
+        ) : view === "calendar" ? (
+          <CalendarView
+            tasks={filteredTasks}
+            hasActiveTaskFilters={hasActiveTaskFilters}
+            onOpenTask={(taskId) => setSelectedTaskId(taskId)}
+          />
         ) : columns === null ? (
           <p>Loading...</p>
         ) : (
@@ -1129,6 +1356,12 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                                 canToggleComplete={canEditTasks}
                                 onToggleComplete={handleToggleTaskCompleted}
                                 onOpen={() => setSelectedTaskId(task.id)}
+                                selectable={canBulkSelect}
+                                selected={selectedTaskIds.has(task.id)}
+                                selectionDisabled={
+                                  !selectedTaskIds.has(task.id) && selectedTaskIds.size >= 100
+                                }
+                                onToggleSelect={handleToggleTaskSelected}
                               />
                             ))
                           )}
@@ -1266,6 +1499,23 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
 
       {toast && <div className={`ph-toast${toast.error ? " ph-toast-error" : ""}`}>{toast.message}</div>}
 
+      {canBulkSelect && selectedTaskIds.size > 0 && columns !== null && (
+        <BulkActionBar
+          base={base}
+          tasks={tasks}
+          setTasks={setTasks}
+          selectedTaskIds={selectedTaskIds}
+          setSelectedTaskIds={setSelectedTaskIds}
+          columns={columns}
+          workspaceMembers={workspaceMembers}
+          projectLabels={projectLabels}
+          canEditTasks={canEditTasks}
+          canAssignTasks={canAssignTasks}
+          canDeleteTasks={canDeleteTasks}
+          showToast={showToast}
+        />
+      )}
+
       {createTaskColumnId && workspaceId && projectId && (
         <CreateTaskModal
           onClose={() => setCreateTaskColumnId(null)}
@@ -1347,6 +1597,319 @@ function BoardColumnShell({
       className={`ph-board-column${isDragging ? " ph-board-column-dragging" : ""}`}
     >
       {children({ attributes, listeners })}
+    </div>
+  );
+}
+
+type ListSortKey = "title" | "assignee" | "priority" | "dueDate" | "column" | "labels";
+
+const PRIORITY_DISPLAY_LABEL: Record<Task["priority"], string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  urgent: "Urgent",
+};
+
+/**
+ * List view (Alternate Board Views): a sortable table over the same task
+ * data/filters the Board view uses, with row/title clicks opening the exact
+ * same `TaskDetailModal` instance the Board view's cards open (via
+ * `onOpenTask`, which is just `setSelectedTaskId` from the parent). Purely
+ * additive alongside the Board/Activity views — no drag-and-drop, no
+ * column CRUD, no bulk-select, no custom-field columns (deliberately out of
+ * scope for this table; see the tracker's exact column list).
+ */
+function ListView({
+  tasks,
+  columns,
+  hasActiveTaskFilters,
+  sortKey,
+  sortDir,
+  onSort,
+  onOpenTask,
+}: {
+  tasks: Task[];
+  columns: BoardColumn[] | null;
+  hasActiveTaskFilters: boolean;
+  sortKey: ListSortKey;
+  sortDir: "asc" | "desc";
+  onSort: (key: ListSortKey) => void;
+  onOpenTask: (taskId: string) => void;
+}) {
+  if (columns === null) {
+    return <p>Loading...</p>;
+  }
+
+  const now = Date.now();
+
+  function SortHeader({ label, sortKeyValue }: { label: string; sortKeyValue: ListSortKey }) {
+    const active = sortKey === sortKeyValue;
+    return (
+      <th>
+        <button type="button" className="ph-list-sort-button" onClick={() => onSort(sortKeyValue)}>
+          {label}
+          {active && <span aria-hidden="true"> {sortDir === "asc" ? "▲" : "▼"}</span>}
+        </button>
+      </th>
+    );
+  }
+
+  return (
+    <div className="ph-list-table-wrap">
+      <table className="ph-list-table">
+        <thead>
+          <tr>
+            <SortHeader label="Title" sortKeyValue="title" />
+            <SortHeader label="Assignee" sortKeyValue="assignee" />
+            <SortHeader label="Priority" sortKeyValue="priority" />
+            <SortHeader label="Due Date" sortKeyValue="dueDate" />
+            <SortHeader label="Column" sortKeyValue="column" />
+            <SortHeader label="Labels" sortKeyValue="labels" />
+          </tr>
+        </thead>
+        <tbody>
+          {tasks.length === 0 ? (
+            <tr>
+              <td colSpan={6} style={{ padding: 0, border: "none" }}>
+                <div className="ph-empty-state">
+                  {hasActiveTaskFilters ? "No tasks match the current filters." : "No tasks yet."}
+                </div>
+              </td>
+            </tr>
+          ) : (
+            tasks.map((task) => {
+              const columnName = columns.find((c) => c.id === task.columnId)?.name ?? "—";
+              const isOverdue = Boolean(task.dueDate && new Date(task.dueDate).getTime() < now);
+              return (
+                <tr key={task.id} className="ph-list-row" onClick={() => onOpenTask(task.id)}>
+                  <td>
+                    <button
+                      type="button"
+                      className="ph-list-title-open"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenTask(task.id);
+                      }}
+                    >
+                      {task.title}
+                    </button>
+                  </td>
+                  <td>
+                    {task.assignees.length > 0
+                      ? task.assignees.map((a) => a.displayName).join(", ")
+                      : "—"}
+                  </td>
+                  <td>
+                    <span className={`ph-badge ph-badge-priority-${task.priority}`}>
+                      {PRIORITY_DISPLAY_LABEL[task.priority]}
+                    </span>
+                  </td>
+                  <td className={isOverdue ? "ph-list-overdue" : undefined}>
+                    {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "—"}
+                  </td>
+                  <td>{columnName}</td>
+                  <td>
+                    {task.labels.length > 0 && (
+                      <div className="ph-list-labels">
+                        {task.labels.map((l) => (
+                          <span key={l.labelId} className="ph-label-chip" style={{ background: l.color }}>
+                            {l.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const CALENDAR_WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const CALENDAR_MAX_VISIBLE_TASKS = 3;
+
+function dayKey(year: number, month: number, day: number): string {
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Alternate Board Views — Calendar view: a month grid over the same task
+ * data/filters the Board and List views use, plus an always-visible
+ * "Unscheduled" section for tasks with no due date. Purely additive
+ * alongside Board/List/Activity — no drag-and-drop, no new fetch, no new
+ * modal (task clicks open the exact same `TaskDetailModal` instance via
+ * `onOpenTask`, just like List view's row clicks). All calendar-specific
+ * state (current month, which day cell is expanded) lives locally in this
+ * component and resets whenever it unmounts.
+ */
+function CalendarView({
+  tasks,
+  hasActiveTaskFilters,
+  onOpenTask,
+}: {
+  tasks: Task[];
+  hasActiveTaskFilters: boolean;
+  onOpenTask: (taskId: string) => void;
+}) {
+  const today = new Date();
+  const [viewYear, setViewYear] = useState(today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getMonth());
+  const [expandedDayKey, setExpandedDayKey] = useState<string | null>(null);
+
+  function goToPrevMonth() {
+    const d = new Date(viewYear, viewMonth - 1, 1);
+    setViewYear(d.getFullYear());
+    setViewMonth(d.getMonth());
+    setExpandedDayKey(null);
+  }
+
+  function goToNextMonth() {
+    const d = new Date(viewYear, viewMonth + 1, 1);
+    setViewYear(d.getFullYear());
+    setViewMonth(d.getMonth());
+    setExpandedDayKey(null);
+  }
+
+  function goToToday() {
+    const now = new Date();
+    setViewYear(now.getFullYear());
+    setViewMonth(now.getMonth());
+    setExpandedDayKey(null);
+  }
+
+  // Group every task with a non-null dueDate by its local calendar day
+  // (getFullYear/getMonth/getDate, never UTC — so a task's due date lands
+  // on the same day a user sees elsewhere in the app, e.g. List view's
+  // toLocaleDateString() due-date column).
+  const tasksByDay = useMemo(() => {
+    const map = new Map<string, Task[]>();
+    for (const t of tasks) {
+      if (!t.dueDate) continue;
+      const d = new Date(t.dueDate);
+      const key = dayKey(d.getFullYear(), d.getMonth(), d.getDate());
+      const list = map.get(key) ?? [];
+      list.push(t);
+      map.set(key, list);
+    }
+    return map;
+  }, [tasks]);
+
+  const unscheduledTasks = useMemo(() => tasks.filter((t) => t.dueDate === null), [tasks]);
+
+  const monthLabel = new Date(viewYear, viewMonth, 1).toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+
+  const firstOfMonth = new Date(viewYear, viewMonth, 1);
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const leadingBlanks = firstOfMonth.getDay(); // 0 (Sun) .. 6 (Sat)
+  const totalCells = leadingBlanks + daysInMonth;
+  const trailingBlanks = (7 - (totalCells % 7)) % 7;
+
+  const cells: Array<{ day: number } | null> = [
+    ...Array.from({ length: leadingBlanks }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, i) => ({ day: i + 1 })),
+    ...Array.from({ length: trailingBlanks }, () => null),
+  ];
+
+  const todayKey = dayKey(today.getFullYear(), today.getMonth(), today.getDate());
+  const todayStartOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+
+  return (
+    <div className="ph-calendar">
+      <div className="ph-calendar-nav">
+        <button type="button" className="ph-button ph-button-secondary" onClick={goToPrevMonth}>
+          ‹ Prev
+        </button>
+        <div className="ph-calendar-nav-label">{monthLabel}</div>
+        <button type="button" className="ph-button ph-button-secondary" onClick={goToNextMonth}>
+          Next ›
+        </button>
+        <button type="button" className="ph-button ph-button-secondary" onClick={goToToday}>
+          Today
+        </button>
+        {hasActiveTaskFilters && tasks.length === 0 && (
+          <span className="ph-calendar-filter-note">No tasks match the current filters.</span>
+        )}
+      </div>
+
+      <div className="ph-calendar-grid">
+        {CALENDAR_WEEKDAY_LABELS.map((label) => (
+          <div key={label} className="ph-calendar-weekday">
+            {label}
+          </div>
+        ))}
+        {cells.map((cell, idx) => {
+          if (cell === null) {
+            return <div key={`blank-${idx}`} className="ph-calendar-day ph-calendar-day-blank" />;
+          }
+          const key = dayKey(viewYear, viewMonth, cell.day);
+          const dayTasks = tasksByDay.get(key) ?? [];
+          const isToday = key === todayKey;
+          const isExpanded = expandedDayKey === key;
+          const visibleTasks = isExpanded ? dayTasks : dayTasks.slice(0, CALENDAR_MAX_VISIBLE_TASKS);
+          const remaining = dayTasks.length - CALENDAR_MAX_VISIBLE_TASKS;
+
+          return (
+            <div key={key} className={`ph-calendar-day${isToday ? " ph-calendar-day-today" : ""}`}>
+              <div className="ph-calendar-day-number">{cell.day}</div>
+              <div className="ph-calendar-day-tasks">
+                {visibleTasks.map((task) => {
+                  const taskDayStart = task.dueDate
+                    ? new Date(new Date(task.dueDate).getFullYear(), new Date(task.dueDate).getMonth(), new Date(task.dueDate).getDate()).getTime()
+                    : null;
+                  const isOverdue = taskDayStart !== null && taskDayStart < todayStartOfDay;
+                  return (
+                    <button
+                      key={task.id}
+                      type="button"
+                      className={`ph-calendar-task-chip${isOverdue ? " ph-calendar-task-chip-overdue" : ""}`}
+                      title={task.title}
+                      onClick={() => onOpenTask(task.id)}
+                    >
+                      {task.title}
+                    </button>
+                  );
+                })}
+                {dayTasks.length > CALENDAR_MAX_VISIBLE_TASKS && (
+                  <button
+                    type="button"
+                    className="ph-calendar-more-toggle"
+                    onClick={() => setExpandedDayKey(isExpanded ? null : key)}
+                  >
+                    {isExpanded ? "Show less" : `+${remaining} more`}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="ph-calendar-unscheduled">
+        <h3>Unscheduled ({unscheduledTasks.length})</h3>
+        {unscheduledTasks.length === 0 ? (
+          <div className="ph-empty-state">No unscheduled tasks.</div>
+        ) : (
+          <div className="ph-calendar-unscheduled-list">
+            {unscheduledTasks.map((task) => (
+              <button
+                key={task.id}
+                type="button"
+                className="ph-calendar-unscheduled-row"
+                onClick={() => onOpenTask(task.id)}
+              >
+                {task.title}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

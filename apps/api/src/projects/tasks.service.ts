@@ -5,9 +5,9 @@ import { NotFoundError, ValidationError } from "../core/errors.js";
 import { computeAppendPosition, computeInsertPosition } from "./position.js";
 import { createActivityEvent, broadcastActivityEvent } from "../activity/activity.service.js";
 
-const DONE_CATEGORY = "done";
+export const DONE_CATEGORY = "done";
 
-const TASK_NOT_FOUND_MESSAGE = "This task doesn't exist in this category.";
+export const TASK_NOT_FOUND_MESSAGE = "This task doesn't exist in this category.";
 
 /**
  * Builds the task search/filter `WHERE` clause on top of the mandatory

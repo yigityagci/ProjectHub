@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { CustomFieldType } from "@projecthub/shared";
 import { api, ApiError } from "../lib/api.js";
 import { getSocket } from "../lib/socket.js";
 import { renderCommentBody } from "../lib/mentions.js";
@@ -22,6 +23,37 @@ interface Dependency {
   blockedTaskId: string;
   blockingTaskId: string;
 }
+
+// Project-scoped field definitions (see ProjectCustomFieldsPanel.tsx and
+// apps/api/src/projects/custom-fields.routes.ts) — every project member sees
+// this section (read-only if `!canEdit`), definitions come from the SAME
+// base as `labelsRes` below (project-scoped), values come from the
+// category-scoped `base` used by every other task sub-resource in this file.
+interface CustomFieldDefinition {
+  id: string;
+  projectId: string;
+  name: string;
+  type: CustomFieldType;
+  options: string[];
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface CustomFieldValue {
+  taskId: string;
+  fieldId: string;
+  value: unknown;
+  // True when this field's `options` changed after the value was set and the
+  // stored value no longer matches the current options (e.g. a renamed
+  // select option) — the UI must flag this rather than render it silently.
+  stale: boolean;
+  updatedAt: string;
+}
+
+// select/multi_select's `value` is validated against the field's `options`;
+// every other type has no such closed vocabulary.
+const OPTIONS_BASED_TYPES = new Set<CustomFieldType>(["select", "multi_select"]);
 
 const CAN_EDIT_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER", "MEMBER"]);
 const CAN_DELETE_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
@@ -82,6 +114,17 @@ export default function TaskDetailModal({
   const [dependencies, setDependencies] = useState<Dependency[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
+  const [customFieldValues, setCustomFieldValues] = useState<CustomFieldValue[]>([]);
+  // Draft strings for the free-text-ish types (text/number/date/url), keyed
+  // by fieldId — these are edited locally and only sent on an explicit Save,
+  // unlike select/multi_select/checkbox which PUT immediately on change
+  // (mirroring handleToggleLabel's immediate-save pattern below). Re-seeded
+  // from the server any time the values list is (re)loaded, same convention
+  // as applyTask re-seeding `title`/`description` etc. on every task load.
+  const [customFieldDrafts, setCustomFieldDrafts] = useState<Record<string, string>>({});
+  const [customFieldErrors, setCustomFieldErrors] = useState<Record<string, string>>({});
+  const [customFieldSaving, setCustomFieldSaving] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [conflictTask, setConflictTask] = useState<Task | null>(null);
   const [saving, setSaving] = useState(false);
@@ -119,22 +162,48 @@ export default function TaskDetailModal({
     setDueDate(formatDateInput(t.dueDate));
   }
 
+  // Re-seeds the text/number/date/url drafts from whatever the server just
+  // returned. Called after the initial load and after every custom-field
+  // value mutation, so a field's draft always starts back in sync with the
+  // committed value (same "reload wins" convention as applyTask above).
+  function applyCustomFieldValues(values: CustomFieldValue[], fields: CustomFieldDefinition[]) {
+    setCustomFieldValues(values);
+    const nextDrafts: Record<string, string> = {};
+    for (const field of fields) {
+      if (OPTIONS_BASED_TYPES.has(field.type) || field.type === "checkbox") continue;
+      const existing = values.find((v) => v.fieldId === field.id);
+      nextDrafts[field.id] = existing !== undefined ? String(existing.value) : "";
+    }
+    setCustomFieldDrafts(nextDrafts);
+  }
+
+  async function refreshCustomFieldValues() {
+    const res = await api.get<{ values: CustomFieldValue[] }>(`${base}/tasks/${taskId}/custom-fields`);
+    applyCustomFieldValues(res.values, customFields);
+  }
+
   async function load() {
     try {
-      const [taskRes, membersRes, labelsRes, depsRes, commentsRes, attachmentsRes] = await Promise.all([
-        api.get<{ task: Task }>(`${base}/tasks/${taskId}`),
-        api.get<{ members: WorkspaceMember[] }>(`/api/workspaces/${workspaceId}/members`),
-        api.get<{ labels: Label[] }>(`${projectBase}/labels`),
-        api.get<{ dependencies: Dependency[] }>(`${base}/tasks/${taskId}/dependencies`),
-        api.get<{ comments: Comment[] }>(`${base}/tasks/${taskId}/comments`),
-        api.get<{ attachments: Attachment[] }>(`${base}/tasks/${taskId}/attachments`),
-      ]);
+      const [taskRes, membersRes, labelsRes, depsRes, commentsRes, attachmentsRes, customFieldsRes, customFieldValuesRes] =
+        await Promise.all([
+          api.get<{ task: Task }>(`${base}/tasks/${taskId}`),
+          api.get<{ members: WorkspaceMember[] }>(`/api/workspaces/${workspaceId}/members`),
+          api.get<{ labels: Label[] }>(`${projectBase}/labels`),
+          api.get<{ dependencies: Dependency[] }>(`${base}/tasks/${taskId}/dependencies`),
+          api.get<{ comments: Comment[] }>(`${base}/tasks/${taskId}/comments`),
+          api.get<{ attachments: Attachment[] }>(`${base}/tasks/${taskId}/attachments`),
+          api.get<{ fields: CustomFieldDefinition[] }>(`${projectBase}/custom-fields`),
+          api.get<{ values: CustomFieldValue[] }>(`${base}/tasks/${taskId}/custom-fields`),
+        ]);
       applyTask(taskRes.task);
       setMembers(membersRes.members);
       setLabels(labelsRes.labels);
       setDependencies(depsRes.dependencies);
       setComments(commentsRes.comments);
       setAttachments(attachmentsRes.attachments);
+      const sortedFields = customFieldsRes.fields.slice().sort((a, b) => a.position - b.position);
+      setCustomFields(sortedFields);
+      applyCustomFieldValues(customFieldValuesRes.values, sortedFields);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load this task.");
     }
@@ -327,6 +396,135 @@ export default function TaskDetailModal({
     }
   }
 
+  function getCustomFieldValue(fieldId: string): CustomFieldValue | undefined {
+    return customFieldValues.find((v) => v.fieldId === fieldId);
+  }
+
+  // Shared PUT path for every custom-field type — `value` must already be
+  // the type-appropriate JSON shape (string/number/boolean/string[]) the
+  // caller built; per-type validation happens server-side, so a 422 here
+  // just surfaces the server's own message rather than being replicated
+  // client-side. Always refetches the values list afterward (proportionate
+  // refetch of just this sub-resource, matching handleRemoveDependency
+  // above, rather than reloading the whole task).
+  async function handleSetCustomFieldValue(field: CustomFieldDefinition, value: unknown) {
+    setCustomFieldErrors((prev) => ({ ...prev, [field.id]: "" }));
+    setCustomFieldSaving((prev) => ({ ...prev, [field.id]: true }));
+    try {
+      await api.put(`${base}/tasks/${taskId}/custom-fields/${field.id}`, { value });
+      await refreshCustomFieldValues();
+    } catch (err) {
+      setCustomFieldErrors((prev) => ({
+        ...prev,
+        [field.id]: err instanceof ApiError ? err.message : `Could not save "${field.name}".`,
+      }));
+    } finally {
+      setCustomFieldSaving((prev) => ({ ...prev, [field.id]: false }));
+    }
+  }
+
+  async function handleClearCustomFieldValue(field: CustomFieldDefinition) {
+    setCustomFieldErrors((prev) => ({ ...prev, [field.id]: "" }));
+    setCustomFieldSaving((prev) => ({ ...prev, [field.id]: true }));
+    try {
+      await api.delete(`${base}/tasks/${taskId}/custom-fields/${field.id}`);
+      await refreshCustomFieldValues();
+    } catch (err) {
+      setCustomFieldErrors((prev) => ({
+        ...prev,
+        [field.id]: err instanceof ApiError ? err.message : `Could not clear "${field.name}".`,
+      }));
+    } finally {
+      setCustomFieldSaving((prev) => ({ ...prev, [field.id]: false }));
+    }
+  }
+
+  // text/number/date/url all share this "clear when the draft is emptied,
+  // otherwise PUT the trimmed draft" shape — a PUT with an empty string is
+  // always a 422 server-side (both text and url reject it), so an emptied
+  // draft must route to DELETE, and only when a value is currently set
+  // (otherwise it's a no-op, avoiding a pointless 404 DELETE call).
+  function handleSaveTextField(field: CustomFieldDefinition) {
+    const draft = (customFieldDrafts[field.id] ?? "").trim();
+    if (!draft) {
+      if (getCustomFieldValue(field.id)) void handleClearCustomFieldValue(field);
+      return;
+    }
+    void handleSetCustomFieldValue(field, draft);
+  }
+
+  function handleSaveNumberField(field: CustomFieldDefinition) {
+    const draft = (customFieldDrafts[field.id] ?? "").trim();
+    if (!draft) {
+      if (getCustomFieldValue(field.id)) void handleClearCustomFieldValue(field);
+      return;
+    }
+    const num = Number(draft);
+    if (!Number.isFinite(num)) {
+      setCustomFieldErrors((prev) => ({ ...prev, [field.id]: "Enter a valid number." }));
+      return;
+    }
+    void handleSetCustomFieldValue(field, num);
+  }
+
+  function handleSaveDateField(field: CustomFieldDefinition) {
+    // The raw <input type="date"> value is already YYYY-MM-DD — unlike the
+    // fixed startDate/dueDate fields elsewhere in this file, this must NOT
+    // be run through `new Date(...).toISOString()`; custom-field date values
+    // are plain date strings, not ISO datetimes (see buildCustomFieldValueSchema).
+    const draft = customFieldDrafts[field.id] ?? "";
+    if (!draft) {
+      if (getCustomFieldValue(field.id)) void handleClearCustomFieldValue(field);
+      return;
+    }
+    void handleSetCustomFieldValue(field, draft);
+  }
+
+  function handleSaveUrlField(field: CustomFieldDefinition) {
+    const draft = (customFieldDrafts[field.id] ?? "").trim();
+    if (!draft) {
+      if (getCustomFieldValue(field.id)) void handleClearCustomFieldValue(field);
+      return;
+    }
+    // Lightweight pre-check only (native `type="url"` validation is looser
+    // than the server's http(s)-only check) — the server's own message is
+    // still surfaced on a 422 either way, this just avoids an obviously
+    // doomed round-trip for a non-URL string.
+    try {
+      const parsed = new URL(draft);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        setCustomFieldErrors((prev) => ({ ...prev, [field.id]: "Value must be a valid http(s) URL." }));
+        return;
+      }
+    } catch {
+      setCustomFieldErrors((prev) => ({ ...prev, [field.id]: "Value must be a valid http(s) URL." }));
+      return;
+    }
+    void handleSetCustomFieldValue(field, draft);
+  }
+
+  function handleSelectFieldChange(field: CustomFieldDefinition, nextValue: string) {
+    if (!nextValue) {
+      if (getCustomFieldValue(field.id)) void handleClearCustomFieldValue(field);
+      return;
+    }
+    void handleSetCustomFieldValue(field, nextValue);
+  }
+
+  function handleToggleMultiSelectOption(field: CustomFieldDefinition, option: string) {
+    const existing = getCustomFieldValue(field.id);
+    const current = Array.isArray(existing?.value) ? (existing.value as unknown[]).map(String) : [];
+    const next = current.includes(option) ? current.filter((o) => o !== option) : [...current, option];
+    if (next.length === 0) {
+      // A multi_select value must have at least one option — clearing the
+      // last remaining chip must DELETE, never PUT an empty array (rejected
+      // 422 server-side).
+      void handleClearCustomFieldValue(field);
+    } else {
+      void handleSetCustomFieldValue(field, next);
+    }
+  }
+
   // Mention autocomplete: watches for an "@partial-name" run of characters
   // immediately before the cursor (no whitespace in between) and, if found,
   // shows a dropdown of matching workspace members. Selecting one replaces
@@ -428,6 +626,227 @@ export default function TaskDetailModal({
       setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not delete this attachment.");
+    }
+  }
+
+  // Plain-text rendering for the read-only (!canEdit) path and as a general
+  // "what's actually stored" fallback — deliberately still renders a stale
+  // select/multi_select value's raw stored string(s) rather than hiding it,
+  // per the stale-badge requirement ("still show what's stored, just
+  // visibly flagged").
+  function formatCustomFieldValue(field: CustomFieldDefinition, valueEntry: CustomFieldValue | undefined): string {
+    if (!valueEntry) return "Not set";
+    const value = valueEntry.value;
+    if (field.type === "checkbox") return value ? "Yes" : "No";
+    if (field.type === "multi_select") {
+      return Array.isArray(value) && value.length > 0 ? value.map(String).join(", ") : "Not set";
+    }
+    return String(value);
+  }
+
+  function renderCustomFieldControl(field: CustomFieldDefinition) {
+    const valueEntry = getCustomFieldValue(field.id);
+    const hasValue = valueEntry !== undefined;
+    const isSaving = Boolean(customFieldSaving[field.id]);
+
+    if (!canEdit) {
+      return <p style={{ margin: 0, fontSize: "0.85rem" }}>{formatCustomFieldValue(field, valueEntry)}</p>;
+    }
+
+    const clearButton = hasValue && (
+      <button
+        type="button"
+        className="ph-remove-btn"
+        disabled={isSaving}
+        onClick={() => handleClearCustomFieldValue(field)}
+      >
+        Clear
+      </button>
+    );
+
+    switch (field.type) {
+      case "text":
+        return (
+          <div style={{ display: "flex", gap: "0.4rem" }}>
+            <input
+              value={customFieldDrafts[field.id] ?? ""}
+              onChange={(e) => setCustomFieldDrafts((prev) => ({ ...prev, [field.id]: e.target.value }))}
+              placeholder="Not set"
+              maxLength={1000}
+              aria-label={field.name}
+            />
+            <button
+              type="button"
+              className="ph-button ph-button-secondary"
+              style={{ width: "auto" }}
+              disabled={isSaving}
+              onClick={() => handleSaveTextField(field)}
+            >
+              Save
+            </button>
+            {clearButton}
+          </div>
+        );
+
+      case "number":
+        return (
+          <div style={{ display: "flex", gap: "0.4rem" }}>
+            <input
+              type="number"
+              value={customFieldDrafts[field.id] ?? ""}
+              onChange={(e) => setCustomFieldDrafts((prev) => ({ ...prev, [field.id]: e.target.value }))}
+              placeholder="Not set"
+              aria-label={field.name}
+            />
+            <button
+              type="button"
+              className="ph-button ph-button-secondary"
+              style={{ width: "auto" }}
+              disabled={isSaving}
+              onClick={() => handleSaveNumberField(field)}
+            >
+              Save
+            </button>
+            {clearButton}
+          </div>
+        );
+
+      case "date":
+        return (
+          <div style={{ display: "flex", gap: "0.4rem" }}>
+            <input
+              type="date"
+              value={customFieldDrafts[field.id] ?? ""}
+              onChange={(e) => setCustomFieldDrafts((prev) => ({ ...prev, [field.id]: e.target.value }))}
+              aria-label={field.name}
+            />
+            <button
+              type="button"
+              className="ph-button ph-button-secondary"
+              style={{ width: "auto" }}
+              disabled={isSaving}
+              onClick={() => handleSaveDateField(field)}
+            >
+              Save
+            </button>
+            {clearButton}
+          </div>
+        );
+
+      case "url":
+        return (
+          <div style={{ display: "flex", gap: "0.4rem" }}>
+            <input
+              type="url"
+              value={customFieldDrafts[field.id] ?? ""}
+              onChange={(e) => setCustomFieldDrafts((prev) => ({ ...prev, [field.id]: e.target.value }))}
+              placeholder="https://..."
+              maxLength={2048}
+              aria-label={field.name}
+            />
+            <button
+              type="button"
+              className="ph-button ph-button-secondary"
+              style={{ width: "auto" }}
+              disabled={isSaving}
+              onClick={() => handleSaveUrlField(field)}
+            >
+              Save
+            </button>
+            {clearButton}
+          </div>
+        );
+
+      case "select": {
+        const currentValue = typeof valueEntry?.value === "string" ? valueEntry.value : "";
+        const isStaleValue = currentValue !== "" && !field.options.includes(currentValue);
+        return (
+          <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+            <select
+              value={currentValue}
+              disabled={isSaving}
+              aria-label={field.name}
+              onChange={(e) => handleSelectFieldChange(field, e.target.value)}
+            >
+              <option value="">Not set</option>
+              {isStaleValue && (
+                <option value={currentValue} disabled>
+                  {currentValue} (no longer a valid option)
+                </option>
+              )}
+              {field.options.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+            {clearButton}
+          </div>
+        );
+      }
+
+      case "multi_select": {
+        const current = Array.isArray(valueEntry?.value) ? (valueEntry.value as unknown[]).map(String) : [];
+        const invalidSelected = current.filter((v) => !field.options.includes(v));
+        return (
+          <div>
+            <div className="ph-task-card-meta">
+              {field.options.map((opt) => {
+                const attached = current.includes(opt);
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    className="ph-label-chip"
+                    style={{
+                      background: attached ? "var(--ph-primary)" : "transparent",
+                      color: attached ? "white" : "var(--ph-text)",
+                      border: "1px solid var(--ph-border)",
+                      cursor: isSaving ? "default" : "pointer",
+                    }}
+                    disabled={isSaving}
+                    onClick={() => handleToggleMultiSelectOption(field, opt)}
+                  >
+                    {opt}
+                  </button>
+                );
+              })}
+              {invalidSelected.map((opt) => (
+                <span
+                  key={opt}
+                  className="ph-label-chip"
+                  style={{ border: "1px dashed var(--ph-error)", color: "var(--ph-error)", opacity: 0.8 }}
+                  title="No longer a valid option for this field"
+                >
+                  {opt} (invalid)
+                </span>
+              ))}
+              {field.options.length === 0 && invalidSelected.length === 0 && (
+                <span style={{ fontSize: "0.85rem" }}>No options defined.</span>
+              )}
+            </div>
+            {clearButton}
+          </div>
+        );
+      }
+
+      case "checkbox":
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <input
+              type="checkbox"
+              checked={Boolean(valueEntry?.value)}
+              disabled={isSaving}
+              aria-label={field.name}
+              onChange={(e) => handleSetCustomFieldValue(field, e.target.checked)}
+            />
+            <span style={{ fontSize: "0.85rem" }}>{valueEntry?.value ? "Yes" : "No"}</span>
+            {clearButton}
+          </div>
+        );
+
+      default:
+        return null;
     }
   }
 
@@ -684,6 +1103,44 @@ export default function TaskDetailModal({
               )}
             </div>
           </div>
+        </div>
+
+        <div className="ph-modal-section">
+          <h3>Custom fields</h3>
+          {customFields.length === 0 ? (
+            <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--ph-muted)" }}>
+              No custom fields defined for this project.
+            </p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+              {customFields.map((field) => {
+                const valueEntry = getCustomFieldValue(field.id);
+                const fieldError = customFieldErrors[field.id];
+                return (
+                  <div key={field.id} className="ph-field">
+                    <label>
+                      {field.name}
+                      {valueEntry?.stale && (
+                        <span
+                          className="ph-badge ph-badge-stale"
+                          style={{ marginLeft: "0.5rem" }}
+                          title="This field's options changed since this value was set — the stored value may no longer be valid."
+                        >
+                          Outdated value
+                        </span>
+                      )}
+                    </label>
+                    {fieldError && (
+                      <div className="ph-alert ph-alert-error" style={{ margin: "0.25rem 0" }}>
+                        {fieldError}
+                      </div>
+                    )}
+                    {renderCustomFieldControl(field)}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <div className="ph-modal-section">
