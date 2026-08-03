@@ -371,19 +371,6 @@ select:disabled {
   letter-spacing: -0.01em;
 }
 
-.ph-brand .ph-logo {
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  background: linear-gradient(135deg, var(--ph-primary), var(--ph-primary-hover));
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  box-shadow: 0 4px 10px rgba(var(--ph-primary-rgb), 0.35);
-}
-
 .ph-card {
   width: 100%;
   max-width: 420px;

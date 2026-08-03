@@ -29,12 +29,7 @@ export interface CurrentUser {
 }
 
 export function Brand() {
-  return (
-    <div className="ph-brand">
-      <span className="ph-logo">P</span>
-      ProjectHub
-    </div>
-  );
+  return <div className="ph-brand">ProjectHub</div>;
 }
 
 export default function App() {
