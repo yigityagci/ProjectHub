@@ -956,13 +956,22 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
       </div>
 
       <div className="ph-page-wide">
-        <div className="ph-breadcrumb">
-          <Link to="/">Your workspaces</Link> /{" "}
-          <Link to={`/workspace/${workspaceId}/projects`}>Projects</Link> /{" "}
-          <Link to={`/workspace/${workspaceId}/projects/${projectId}/categories`}>
-            {projectName || "..."}
-          </Link>{" "}
-          / {categoryName || "..."}
+        <div className="ph-breadcrumb-row">
+          <Link
+            className="ph-button ph-button-secondary"
+            style={{ width: "auto", textDecoration: "none" }}
+            to={`/workspace/${workspaceId}/projects/${projectId}/categories`}
+          >
+            <span aria-hidden="true">‹</span> Back to Categories
+          </Link>
+          <div className="ph-breadcrumb">
+            <Link to="/">Your workspaces</Link> /{" "}
+            <Link to={`/workspace/${workspaceId}/projects`}>Projects</Link> /{" "}
+            <Link to={`/workspace/${workspaceId}/projects/${projectId}/categories`}>
+              {projectName || "..."}
+            </Link>{" "}
+            / {categoryName || "..."}
+          </div>
         </div>
 
         <div className="ph-page-header">

@@ -96,16 +96,13 @@ export default function WorkspacesPage({
         ) : (
           <ul className="ph-workspace-list">
             {workspaces.map((ws) => (
-              <li key={ws.id} className="gap-3">
-                <Link
-                  to={`/workspace/${ws.id}/projects`}
-                  className="min-w-0 truncate"
-                  style={{ color: "inherit", textDecoration: "none" }}
-                  title={ws.name}
-                >
-                  {ws.name}
+              <li key={ws.id}>
+                <Link className="ph-workspace-card gap-3" to={`/workspace/${ws.id}/projects`}>
+                  <span className="min-w-0 truncate" title={ws.name}>
+                    {ws.name}
+                  </span>
+                  <span className="ph-role-badge shrink-0">{ws.role}</span>
                 </Link>
-                <span className="ph-role-badge shrink-0">{ws.role}</span>
               </li>
             ))}
           </ul>

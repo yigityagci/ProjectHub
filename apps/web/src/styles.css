@@ -519,25 +519,8 @@ select:disabled {
   list-style: none;
   padding: 0;
   margin: 0 0 1.5rem;
-}
-
-.ph-workspace-list li {
-  padding: 0.85rem 1.1rem;
-  border: 1px solid var(--ph-border);
-  border-radius: 12px;
-  margin-bottom: 0.6rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: var(--ph-surface);
-  box-shadow: var(--ph-shadow-sm);
-  transition: box-shadow 180ms ease, transform 180ms ease, border-color 180ms ease;
-}
-
-.ph-workspace-list li:hover {
-  border-color: var(--ph-primary);
-  box-shadow: var(--ph-shadow-md);
-  transform: translateY(-1px);
+  display: grid;
+  gap: 0.6rem;
 }
 
 .ph-role-badge {
@@ -605,6 +588,18 @@ select:disabled {
   text-decoration: underline;
 }
 
+.ph-breadcrumb-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+
+.ph-breadcrumb-row .ph-breadcrumb {
+  margin-bottom: 0;
+}
+
 .ph-page-header {
   display: flex;
   justify-content: space-between;
@@ -631,7 +626,8 @@ select:disabled {
 }
 
 .ph-project-card,
-.ph-category-card {
+.ph-category-card,
+.ph-workspace-card {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -647,7 +643,8 @@ select:disabled {
 }
 
 .ph-project-card:hover,
-.ph-category-card:hover {
+.ph-category-card:hover,
+.ph-workspace-card:hover {
   border-color: var(--ph-primary);
   box-shadow: var(--ph-shadow-md);
   transform: translateY(-2px);

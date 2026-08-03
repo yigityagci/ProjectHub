@@ -125,8 +125,13 @@ export default function ProjectsPage({ user }: { user: CurrentUser }) {
       </div>
 
       <div className="ph-page-wide">
-        <div className="ph-breadcrumb">
-          <Link to="/">Your workspaces</Link> / {workspaceName || "..."}
+        <div className="ph-breadcrumb-row">
+          <Link className="ph-button ph-button-secondary" style={{ width: "auto", textDecoration: "none" }} to="/">
+            <span aria-hidden="true">‹</span> Back to Workspaces
+          </Link>
+          <div className="ph-breadcrumb">
+            <Link to="/">Your workspaces</Link> / {workspaceName || "..."}
+          </div>
         </div>
 
         <div className="ph-page-header">

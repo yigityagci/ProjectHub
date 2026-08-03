@@ -300,9 +300,18 @@ export default function CategoriesPage({ user }: { user: CurrentUser }) {
       </div>
 
       <div className="ph-page-wide">
-        <div className="ph-breadcrumb">
-          <Link to="/">Your workspaces</Link> /{" "}
-          <Link to={`/workspace/${workspaceId}/projects`}>Projects</Link> / {projectName || "..."}
+        <div className="ph-breadcrumb-row">
+          <Link
+            className="ph-button ph-button-secondary"
+            style={{ width: "auto", textDecoration: "none" }}
+            to={`/workspace/${workspaceId}/projects`}
+          >
+            <span aria-hidden="true">‹</span> Back to Projects
+          </Link>
+          <div className="ph-breadcrumb">
+            <Link to="/">Your workspaces</Link> /{" "}
+            <Link to={`/workspace/${workspaceId}/projects`}>Projects</Link> / {projectName || "..."}
+          </div>
         </div>
 
         <div className="ph-page-header">
