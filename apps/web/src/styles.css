@@ -2008,6 +2008,206 @@ select:disabled {
   box-shadow: inset 0 0 0 3px var(--ph-focus-ring);
 }
 
+/* Milestones module (CategoriesPage.tsx) — a self-contained "progress
+   module" that sits above the Categories section on the same page. Reuses
+   .ph-card/.ph-card-wide for the shell, .ph-page-header for the header row,
+   .ph-badge variants for status, .ph-bar-track/.ph-task-complete-toggle/
+   .ph-remove-btn for the shared bits, and the exact .ph-board scrollbar
+   treatment for the horizontally-scrolling card row. */
+.ph-milestones-module {
+  border-left: 4px solid var(--ph-primary);
+}
+
+/* The module's own heading sits inside a nested .ph-page-header (for its
+   row layout + existing ≤640px stacking behavior) which would otherwise
+   inherit the page-title-sized `.ph-page-header h1` rule. Override back
+   down to the standard in-card section-heading size/weight — two classes
+   beats the single-class .ph-page-header h1 rule regardless of source
+   order. */
+.ph-milestones-module .ph-page-header h1 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 0.4rem;
+  letter-spacing: -0.01em;
+}
+
+.ph-milestones-module .ph-page-header {
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 640px) {
+  .ph-milestone-header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+.ph-milestone-row-wrap {
+  position: relative;
+}
+
+.ph-milestone-row {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0.75rem;
+  display: flex;
+  gap: 0.85rem;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ph-border) transparent;
+}
+
+.ph-milestone-row::-webkit-scrollbar {
+  height: 9px;
+}
+
+.ph-milestone-row::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ph-milestone-row::-webkit-scrollbar-thumb {
+  background-color: var(--ph-border);
+  border-radius: 999px;
+}
+
+.ph-milestone-row::-webkit-scrollbar-thumb:hover {
+  background-color: var(--ph-muted);
+}
+
+.ph-milestone-row > li {
+  flex: 0 0 260px;
+  list-style: none;
+}
+
+.ph-milestone-fade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2.5rem;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.ph-milestone-fade-left {
+  left: 0;
+  background: linear-gradient(to right, var(--ph-surface), transparent);
+}
+
+.ph-milestone-fade-right {
+  right: 0;
+  background: linear-gradient(to left, var(--ph-surface), transparent);
+}
+
+.ph-milestone-card {
+  height: 12.5rem;
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--ph-surface);
+  border: 1px solid var(--ph-border);
+  border-radius: 12px;
+  box-shadow: var(--ph-shadow-sm);
+  padding: 1rem 1.15rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.ph-milestone-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.ph-milestone-card .ph-milestone-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.35;
+  margin: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.ph-milestone-card-header .ph-badge {
+  flex: 0 0 auto;
+  margin-top: 0.1rem;
+}
+
+.ph-milestone-card .ph-milestone-desc {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--ph-muted);
+  margin: 0 0 0.55rem;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.ph-milestone-card .ph-milestone-desc-empty {
+  font-style: italic;
+  opacity: 0.85;
+}
+
+.ph-milestone-card .ph-milestone-date {
+  font-size: 0.78rem;
+  color: var(--ph-muted);
+  margin: 0;
+}
+
+.ph-milestone-card-actions {
+  margin-top: auto;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--ph-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ph-milestone-card-actions .ph-task-complete-toggle {
+  margin: 0;
+}
+
+.ph-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  background: none;
+  color: var(--ph-muted);
+}
+
+.ph-icon-btn:disabled:hover {
+  background: none;
+  color: var(--ph-muted);
+}
+
+.ph-milestone-summary {
+  font-size: 0.85rem;
+  color: var(--ph-text);
+  margin: 0 0 0.5rem;
+}
+
+.ph-milestone-current-line {
+  font-size: 0.85rem;
+  margin: 0.5rem 0 0;
+}
+
+.ph-milestone-current-line strong {
+  font-weight: 700;
+}
+
+.ph-milestone-current-line.ph-milestone-all-complete {
+  color: var(--ph-success);
+  font-weight: 600;
+}
+
+.ph-bar-fill-milestones {
+  background: linear-gradient(90deg, var(--ph-success), var(--ph-info));
+}
+
 /* Responsive polish pass (Phase 7): narrow-viewport fixes for surfaces
    added in Phases 3-6 that hadn't been audited against small screens yet
    (the Kanban board's horizontal column scroll and the task detail modal's
@@ -2073,6 +2273,10 @@ select:disabled {
   }
 
   .ph-board-column {
+    flex-basis: 82vw;
+  }
+
+  .ph-milestone-row > li {
     flex-basis: 82vw;
   }
 }

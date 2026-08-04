@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
@@ -6,6 +6,7 @@ import NotificationBell from "../components/NotificationBell.js";
 import ThemeToggle from "../components/ThemeToggle.js";
 import SettingsGearLink from "../components/SettingsGearLink.js";
 import { IconPlus } from "../components/Icons.js";
+import { getCurrentMilestone, getMilestoneDisplayOrder } from "../lib/milestone-progress.js";
 import type { CurrentUser } from "../App.js";
 
 interface Category {
@@ -91,6 +92,15 @@ export default function CategoriesPage({ user }: { user: CurrentUser }) {
   const [newMilestoneDescription, setNewMilestoneDescription] = useState("");
   const [newMilestoneTargetDate, setNewMilestoneTargetDate] = useState("");
   const [creatingMilestone, setCreatingMilestone] = useState(false);
+
+  // Milestone card row: horizontal-scroll affordances (edge fades + arrow
+  // buttons), both fully unmounted (not just hidden) when the row doesn't
+  // overflow. Recomputed on scroll, on milestone-list changes, and on
+  // resize via ResizeObserver.
+  const milestoneRowRef = useRef<HTMLUListElement>(null);
+  const [milestoneHasOverflow, setMilestoneHasOverflow] = useState(false);
+  const [milestoneCanScrollLeft, setMilestoneCanScrollLeft] = useState(false);
+  const [milestoneCanScrollRight, setMilestoneCanScrollRight] = useState(false);
 
   async function load() {
     if (!workspaceId || !projectId) return;
@@ -258,6 +268,60 @@ export default function CategoriesPage({ user }: { user: CurrentUser }) {
     }
   }
 
+  // Display order: dated milestones ascending by target date, then undated
+  // milestones in original/creation order — see getMilestoneDisplayOrder.
+  // Never mutates the `milestones` state array itself.
+  const milestoneDisplayOrder = useMemo(
+    () => getMilestoneDisplayOrder(milestones ?? []),
+    [milestones],
+  );
+  const currentMilestone = useMemo(
+    () => getCurrentMilestone(milestoneDisplayOrder),
+    [milestoneDisplayOrder],
+  );
+  const totalMilestones = milestones?.length ?? 0;
+  const completedMilestones = milestones?.filter((m) => m.completedAt).length ?? 0;
+  const allMilestonesComplete = totalMilestones > 0 && completedMilestones === totalMilestones;
+
+  const updateMilestoneScrollState = useCallback(() => {
+    const el = milestoneRowRef.current;
+    if (!el) return;
+    setMilestoneHasOverflow(el.scrollWidth > el.clientWidth + 1);
+    setMilestoneCanScrollLeft(el.scrollLeft > 0);
+    setMilestoneCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  }, []);
+
+  useEffect(() => {
+    const el = milestoneRowRef.current;
+    if (!el) {
+      setMilestoneHasOverflow(false);
+      return;
+    }
+    updateMilestoneScrollState();
+    const observer = new ResizeObserver(() => updateMilestoneScrollState());
+    observer.observe(el);
+    window.addEventListener("resize", updateMilestoneScrollState);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateMilestoneScrollState);
+    };
+  }, [milestoneDisplayOrder, updateMilestoneScrollState]);
+
+  function scrollMilestones(direction: 1 | -1) {
+    const el = milestoneRowRef.current;
+    if (!el) return;
+    const firstCard = el.querySelector<HTMLElement>(".ph-milestone-card");
+    const cardWidth = firstCard?.getBoundingClientRect().width ?? 260;
+    const gap = parseFloat(getComputedStyle(el).columnGap || getComputedStyle(el).gap || "0") || 0;
+    const prefersReducedMotion =
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+      document.documentElement.dataset.reduceMotion === "true";
+    el.scrollBy({
+      left: direction * (cardWidth + gap),
+      behavior: prefersReducedMotion ? "auto" : "smooth",
+    });
+  }
+
   const addableRosterMembers = workspaceRoster.filter(
     (m) => !(projectMembers ?? []).some((pm) => pm.userId === m.userId),
   );
@@ -318,9 +382,10 @@ export default function CategoriesPage({ user }: { user: CurrentUser }) {
 
         <div className="ph-page-header">
           <div>
-            <h1>Categories</h1>
+            <h1>Project Overview</h1>
             <p className="ph-subtitle" style={{ margin: 0 }}>
-              Each category is its own working board within {projectName || "this project"}.
+              Milestones track project-wide goals; categories are separate team workboards within{" "}
+              {projectName || "this project"}.
             </p>
           </div>
           {/* canManageCategories also mirrors project.edit's grant (same
@@ -393,117 +458,234 @@ export default function CategoriesPage({ user }: { user: CurrentUser }) {
           </div>
         )}
 
-        <div className="ph-card ph-card-wide" style={{ marginBottom: "1.5rem" }}>
-          <h1 style={{ fontSize: "1rem" }}>Milestones</h1>
-          {milestonesError && <div className="ph-alert ph-alert-error">{milestonesError}</div>}
-          {milestones === null ? (
-            <p>Loading...</p>
-          ) : milestones.length === 0 ? (
-            <div className="ph-empty-state">No milestones yet.</div>
-          ) : (
-            <ul className="ph-assignee-list">
-              {milestones.map((m) => (
-                <li key={m.id}>
-                  <label
-                    className="ph-task-complete-toggle"
-                    style={{ margin: 0, flex: 1, minWidth: 0 }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={Boolean(m.completedAt)}
-                      disabled={!canManageMilestones}
-                      onChange={() => handleToggleMilestone(m)}
-                      aria-label={m.completedAt ? "Mark milestone as not done" : "Mark milestone as done"}
-                    />
-                    <div style={{ display: "flex", flexDirection: "column", gap: "0.1rem", minWidth: 0 }}>
-                      <span className="truncate" title={m.name}>
-                        {m.name}
-                      </span>
-                      <span style={{ fontSize: "0.78rem", color: "var(--ph-muted)" }}>
-                        {m.targetDate ? `Due ${new Date(m.targetDate).toLocaleDateString()}` : "No target date"}
-                        {m.completedAt ? ` · Completed ${new Date(m.completedAt).toLocaleDateString()}` : ""}
-                      </span>
-                    </div>
-                  </label>
-                  {canManageMilestones && (
-                    <button
-                      type="button"
-                      className="ph-remove-btn"
-                      onClick={() => handleDeleteMilestone(m.id)}
-                    >
-                      Delete
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {canManageMilestones &&
-            (addingMilestone ? (
-              <form
-                className="ph-inline-form"
-                style={{ marginTop: "0.75rem", flexWrap: "wrap" }}
-                onSubmit={handleCreateMilestone}
-              >
-                <div className="ph-field">
-                  <label htmlFor="newMilestoneName">Name</label>
-                  <input
-                    id="newMilestoneName"
-                    value={newMilestoneName}
-                    onChange={(e) => setNewMilestoneName(e.target.value)}
-                    required
-                    autoFocus
-                  />
-                </div>
-                <div className="ph-field">
-                  <label htmlFor="newMilestoneDescription">Description (optional)</label>
-                  <input
-                    id="newMilestoneDescription"
-                    value={newMilestoneDescription}
-                    onChange={(e) => setNewMilestoneDescription(e.target.value)}
-                  />
-                </div>
-                <div className="ph-field">
-                  <label htmlFor="newMilestoneTargetDate">Target date (optional)</label>
-                  <input
-                    id="newMilestoneTargetDate"
-                    type="date"
-                    value={newMilestoneTargetDate}
-                    onChange={(e) => setNewMilestoneTargetDate(e.target.value)}
-                  />
-                </div>
-                <button
-                  className="ph-button"
-                  type="submit"
-                  disabled={creatingMilestone || !newMilestoneName.trim()}
-                >
-                  {creatingMilestone ? "Adding..." : "Add milestone"}
-                </button>
+        <div className="ph-card ph-card-wide ph-milestones-module" style={{ marginBottom: "1.5rem" }}>
+          <div className="ph-page-header">
+            <div>
+              <h1>Milestones</h1>
+              <p className="ph-subtitle" style={{ margin: 0 }}>
+                Project-wide targets that span every category — mark them off as the whole team
+                reaches them.
+              </p>
+            </div>
+            <div
+              className="ph-milestone-header-actions"
+              style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}
+            >
+              {canManageMilestones && !addingMilestone && (
                 <button
                   type="button"
                   className="ph-button ph-button-secondary"
-                  onClick={() => {
-                    setAddingMilestone(false);
-                    setNewMilestoneName("");
-                    setNewMilestoneDescription("");
-                    setNewMilestoneTargetDate("");
-                  }}
+                  style={{ width: "auto" }}
+                  onClick={() => setAddingMilestone(true)}
                 >
-                  Cancel
+                  <IconPlus size={15} />
+                  Create milestone
                 </button>
-              </form>
-            ) : (
+              )}
+              {milestoneHasOverflow && (
+                <div className="ph-milestone-scroll-arrows" style={{ display: "flex", gap: "0.35rem" }}>
+                  <button
+                    type="button"
+                    className="ph-icon-btn"
+                    aria-label="Scroll milestones left"
+                    disabled={!milestoneCanScrollLeft}
+                    onClick={() => scrollMilestones(-1)}
+                  >
+                    <span aria-hidden="true">‹</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="ph-icon-btn"
+                    aria-label="Scroll milestones right"
+                    disabled={!milestoneCanScrollRight}
+                    onClick={() => scrollMilestones(1)}
+                  >
+                    <span aria-hidden="true">›</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {milestonesError && <div className="ph-alert ph-alert-error">{milestonesError}</div>}
+
+          {addingMilestone && (
+            <form
+              className="ph-inline-form"
+              style={{ marginBottom: "1rem", flexWrap: "wrap" }}
+              onSubmit={handleCreateMilestone}
+            >
+              <div className="ph-field">
+                <label htmlFor="newMilestoneName">Name</label>
+                <input
+                  id="newMilestoneName"
+                  value={newMilestoneName}
+                  onChange={(e) => setNewMilestoneName(e.target.value)}
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="ph-field">
+                <label htmlFor="newMilestoneDescription">Description (optional)</label>
+                <input
+                  id="newMilestoneDescription"
+                  value={newMilestoneDescription}
+                  onChange={(e) => setNewMilestoneDescription(e.target.value)}
+                />
+              </div>
+              <div className="ph-field">
+                <label htmlFor="newMilestoneTargetDate">Target date (optional)</label>
+                <input
+                  id="newMilestoneTargetDate"
+                  type="date"
+                  value={newMilestoneTargetDate}
+                  onChange={(e) => setNewMilestoneTargetDate(e.target.value)}
+                />
+              </div>
+              <button
+                className="ph-button"
+                type="submit"
+                disabled={creatingMilestone || !newMilestoneName.trim()}
+              >
+                {creatingMilestone ? "Adding..." : "Add milestone"}
+              </button>
               <button
                 type="button"
                 className="ph-button ph-button-secondary"
-                style={{ marginTop: "0.75rem", width: "auto" }}
-                onClick={() => setAddingMilestone(true)}
+                onClick={() => {
+                  setAddingMilestone(false);
+                  setNewMilestoneName("");
+                  setNewMilestoneDescription("");
+                  setNewMilestoneTargetDate("");
+                }}
               >
-                <IconPlus size={15} />
-                Add milestone
+                Cancel
               </button>
-            ))}
+            </form>
+          )}
+
+          {milestones === null ? (
+            <p>Loading...</p>
+          ) : milestones.length === 0 ? (
+            <div className="ph-empty-state">
+              {canManageMilestones
+                ? "No milestones yet — create the first one to start tracking progress toward this project's goals."
+                : "No milestones have been added to this project yet."}
+            </div>
+          ) : (
+            <>
+              <div className="ph-milestone-row-wrap">
+                {milestoneHasOverflow && milestoneCanScrollLeft && (
+                  <div className="ph-milestone-fade ph-milestone-fade-left" />
+                )}
+                {milestoneHasOverflow && milestoneCanScrollRight && (
+                  <div className="ph-milestone-fade ph-milestone-fade-right" />
+                )}
+                <ul
+                  className="ph-milestone-row"
+                  ref={milestoneRowRef}
+                  onScroll={updateMilestoneScrollState}
+                  tabIndex={0}
+                  role="group"
+                  aria-label="Milestone cards"
+                >
+                  {milestoneDisplayOrder.map((m) => {
+                    const isCompleted = Boolean(m.completedAt);
+                    const isCurrent = !isCompleted && currentMilestone?.id === m.id;
+                    return (
+                      <li key={m.id}>
+                        <div className="ph-milestone-card">
+                          <div className="ph-milestone-card-header">
+                            <span className="ph-milestone-name" title={m.name}>
+                              {m.name}
+                            </span>
+                            {isCompleted ? (
+                              <span className="ph-badge ph-badge-status-completed">Completed</span>
+                            ) : isCurrent ? (
+                              <span className="ph-badge ph-badge-current">Current</span>
+                            ) : (
+                              <span className="ph-badge">Upcoming</span>
+                            )}
+                          </div>
+                          <p
+                            className={
+                              m.description
+                                ? "ph-milestone-desc"
+                                : "ph-milestone-desc ph-milestone-desc-empty"
+                            }
+                          >
+                            {m.description || "No description"}
+                          </p>
+                          <p className="ph-milestone-date">
+                            {m.targetDate
+                              ? `Due ${new Date(m.targetDate).toLocaleDateString()}`
+                              : "No target date"}
+                            {m.completedAt
+                              ? ` · Completed ${new Date(m.completedAt).toLocaleDateString()}`
+                              : ""}
+                          </p>
+                          <div className="ph-milestone-card-actions">
+                            <label className="ph-task-complete-toggle" style={{ margin: 0 }}>
+                              <input
+                                type="checkbox"
+                                checked={isCompleted}
+                                disabled={!canManageMilestones}
+                                onChange={() => handleToggleMilestone(m)}
+                                aria-label={
+                                  m.completedAt ? "Mark milestone as not done" : "Mark milestone as done"
+                                }
+                              />
+                            </label>
+                            {canManageMilestones && (
+                              <button
+                                type="button"
+                                className="ph-remove-btn"
+                                onClick={() => handleDeleteMilestone(m.id)}
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+
+              <p className="ph-milestone-summary">
+                {completedMilestones} of {totalMilestones} milestone{totalMilestones === 1 ? "" : "s"}{" "}
+                completed
+              </p>
+
+              <div
+                className="ph-bar-track"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={totalMilestones}
+                aria-valuenow={completedMilestones}
+                aria-valuetext={`${completedMilestones} of ${totalMilestones} milestones completed`}
+                aria-label="Overall milestone progress"
+              >
+                <div
+                  className="ph-bar-fill ph-bar-fill-milestones"
+                  style={{ width: `${(completedMilestones / totalMilestones) * 100}%` }}
+                />
+              </div>
+
+              {allMilestonesComplete ? (
+                <p className="ph-milestone-current-line ph-milestone-all-complete">
+                  All milestones for this project are complete.
+                </p>
+              ) : (
+                currentMilestone && (
+                  <p className="ph-milestone-current-line">
+                    Current milestone: <strong>{currentMilestone.name}</strong>
+                  </p>
+                )
+              )}
+            </>
+          )}
         </div>
 
         {categories === null ? (
