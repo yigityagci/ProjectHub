@@ -34,6 +34,7 @@ export function serializeUserSettings(user: User) {
       mention: user.notifyOnMention,
       task_assigned: user.notifyOnTaskAssigned,
       comment_reply: user.notifyOnCommentReply,
+      due_date_soon: user.notifyOnDueDate,
     },
     accessibility: {
       reduceMotion: user.prefersReducedMotion,
@@ -70,6 +71,9 @@ export async function updatePreferences(userId: string, input: UpdatePreferences
         : {}),
       ...(input.notifications?.comment_reply !== undefined
         ? { notifyOnCommentReply: input.notifications.comment_reply }
+        : {}),
+      ...(input.notifications?.due_date_soon !== undefined
+        ? { notifyOnDueDate: input.notifications.due_date_soon }
         : {}),
       ...(input.locale !== undefined ? { locale: input.locale } : {}),
       ...(input.accessibility?.reduceMotion !== undefined

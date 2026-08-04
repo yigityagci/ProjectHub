@@ -26,6 +26,29 @@ export async function sendNotificationEmailFor(
   // meaningful to link to or describe.
   if (!payload.taskId) return;
 
+  if (notification.type === "due_date_soon") {
+    const task = await prisma.task.findUnique({
+      where: { id: payload.taskId },
+      select: { title: true, dueDate: true, project: { select: { name: true } } },
+    });
+    if (!task || !task.dueDate) return;
+
+    const link = payload.categoryId
+      ? `${env.WEB_URL}/workspace/${notification.workspaceId}/projects/${payload.projectId}/categories/${payload.categoryId}/board`
+      : `${env.WEB_URL}/workspace/${notification.workspaceId}/projects/${payload.projectId}/categories`;
+
+    await sendNotificationEmail({
+      recipientEmail: recipient.email,
+      recipientDisplayName: recipient.displayName,
+      type: notification.type,
+      taskTitle: task.title,
+      projectName: task.project.name,
+      dueDate: task.dueDate,
+      link,
+    });
+    return;
+  }
+
   const actorId = notification.type === "mention" ? payload.authorId : payload.assignedBy;
   if (!actorId) return;
 

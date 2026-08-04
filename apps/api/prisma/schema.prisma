@@ -101,6 +101,7 @@ enum NotificationType {
   mention
   task_assigned
   comment_reply
+  due_date_soon
 }
 
 enum SmtpSecurity {
@@ -140,6 +141,7 @@ model User {
   notifyOnMention       Boolean  @default(true)
   notifyOnTaskAssigned  Boolean  @default(true)
   notifyOnCommentReply  Boolean  @default(true)
+  notifyOnDueDate Boolean @default(true)
   locale                String   @default("en")
   prefersReducedMotion  Boolean  @default(false)
   prefersLargerText     Boolean  @default(false)
@@ -600,6 +602,16 @@ model Task {
   creator      User         @relation("TaskCreator", fields: [creatorId], references: [id])
   startDate    DateTime?
   dueDate      DateTime?
+  // Set the moment a due-date-soon reminder notification has been created for
+  // this task — this single column IS the claim marker for the scheduler's
+  // due-date-reminder handler (see notifications/due-date-reminder.service.ts):
+  // there's no "next occurrence" to advance, unlike recurrence's
+  // nextRunAt/recurrenceCount pair, so a plain null->timestamp transition is
+  // the entire claim. Cleared back to null by tasks.service.ts#updateTask
+  // whenever `dueDate` is included in a PATCH at all (even set to its current
+  // value, or to null), so a task whose reminder already fired is re-armed
+  // under its new due date rather than staying silenced forever.
+  dueReminderSentAt DateTime?
   // Set the moment this task's column transitions into a `done`-category
   // column (moveTask in tasks.service.ts), cleared if it's moved back out of
   // done. Phase 6 analytics (completion-over-time, average completion time)
@@ -626,6 +638,9 @@ model Task {
   @@index([creatorId])
   // The recurrence scheduler's claim query filters on nextRunAt <= now.
   @@index([nextRunAt])
+  // The due-date-reminder scheduler's claim query filters on
+  // (dueReminderSentAt IS NULL AND dueDate BETWEEN now AND now+lookahead).
+  @@index([dueReminderSentAt, dueDate])
   // A template's spawned instances (and the frontend badge's reverse lookup
   // from an instance back to its template's title) are looked up by this.
   @@index([recurrenceTemplateId])

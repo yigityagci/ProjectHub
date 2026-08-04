@@ -22,11 +22,12 @@ export interface CreateNotificationInput {
  */
 const NOTIFICATION_PREF_FIELD: Record<
   NotificationType,
-  "notifyOnMention" | "notifyOnTaskAssigned" | "notifyOnCommentReply"
+  "notifyOnMention" | "notifyOnTaskAssigned" | "notifyOnCommentReply" | "notifyOnDueDate"
 > = {
   mention: "notifyOnMention",
   task_assigned: "notifyOnTaskAssigned",
   comment_reply: "notifyOnCommentReply",
+  due_date_soon: "notifyOnDueDate",
 };
 
 function serializeNotification(n: {
@@ -67,6 +68,7 @@ export async function createNotification(input: CreateNotificationInput): Promis
       notifyOnMention: true,
       notifyOnTaskAssigned: true,
       notifyOnCommentReply: true,
+      notifyOnDueDate: true,
       email: true,
       displayName: true,
       status: true,

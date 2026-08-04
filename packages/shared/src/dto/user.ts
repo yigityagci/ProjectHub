@@ -36,6 +36,7 @@ const _notificationPrefKeysCoverCatalog: Record<NotificationType, true> = {
   mention: true,
   task_assigned: true,
   comment_reply: true,
+  due_date_soon: true,
 };
 void _notificationPrefKeysCoverCatalog;
 
@@ -44,6 +45,7 @@ export const notificationPreferencesPatchSchema = z
     mention: z.boolean(),
     task_assigned: z.boolean(),
     comment_reply: z.boolean(),
+    due_date_soon: z.boolean(),
   })
   .partial()
   .strict();

@@ -5,6 +5,7 @@ import type { SettingsTabProps } from "./types.js";
 export default function NotificationsTab({ settings, onSettingsChange }: SettingsTabProps) {
   const [mention, setMention] = useState(settings.notifications.mention);
   const [taskAssigned, setTaskAssigned] = useState(settings.notifications.task_assigned);
+  const [dueDateSoon, setDueDateSoon] = useState(settings.notifications.due_date_soon);
   const [commentReply, setCommentReply] = useState(settings.notifications.comment_reply);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -13,6 +14,7 @@ export default function NotificationsTab({ settings, onSettingsChange }: Setting
   const dirty =
     mention !== settings.notifications.mention ||
     taskAssigned !== settings.notifications.task_assigned ||
+    dueDateSoon !== settings.notifications.due_date_soon ||
     commentReply !== settings.notifications.comment_reply;
 
   async function handleSubmit(e: FormEvent) {
@@ -22,7 +24,12 @@ export default function NotificationsTab({ settings, onSettingsChange }: Setting
     setSaving(true);
     try {
       const res = await api.patch<{ user: typeof settings }>("/api/auth/me/preferences", {
-        notifications: { mention, task_assigned: taskAssigned, comment_reply: commentReply },
+        notifications: {
+          mention,
+          task_assigned: taskAssigned,
+          due_date_soon: dueDateSoon,
+          comment_reply: commentReply,
+        },
       });
       onSettingsChange(res.user);
       setSuccess("Preferences saved");
@@ -57,6 +64,15 @@ export default function NotificationsTab({ settings, onSettingsChange }: Setting
             <strong>Task assignments</strong>
             <div className="ph-subtitle" style={{ margin: 0 }}>
               You're assigned to a task
+            </div>
+          </span>
+        </label>
+        <label style={{ display: "flex", alignItems: "flex-start", gap: "0.6rem", marginBottom: "0.9rem" }}>
+          <input type="checkbox" checked={dueDateSoon} onChange={(e) => setDueDateSoon(e.target.checked)} />
+          <span>
+            <strong>Due date reminders</strong>
+            <div className="ph-subtitle" style={{ margin: 0 }}>
+              A task you're assigned to is due soon
             </div>
           </span>
         </label>

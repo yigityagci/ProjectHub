@@ -16,6 +16,7 @@ export interface UserSettings {
     mention: boolean;
     task_assigned: boolean;
     comment_reply: boolean;
+    due_date_soon: boolean;
   };
   accessibility: {
     reduceMotion: boolean;

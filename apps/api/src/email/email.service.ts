@@ -21,9 +21,10 @@ export interface NotificationEmailInput {
   recipientEmail: string;
   recipientDisplayName: string;
   type: NotificationType;
-  actorDisplayName: string;
+  actorDisplayName?: string;
   taskTitle: string;
   projectName: string;
+  dueDate?: Date;
   link: string;
 }
 
@@ -105,6 +106,17 @@ ${input.link}
     body: `Hi ${input.recipientDisplayName},
 
 ${input.actorDisplayName} replied to your comment on "${input.taskTitle}" in ${input.projectName}.
+
+View it:
+${input.link}
+
+— ProjectHub`,
+  }),
+  due_date_soon: (input) => ({
+    subject: `"${input.taskTitle}" is due soon`,
+    body: `Hi ${input.recipientDisplayName},
+
+Your task "${input.taskTitle}" in ${input.projectName} is due ${input.dueDate?.toLocaleString() ?? "soon"}.
 
 View it:
 ${input.link}

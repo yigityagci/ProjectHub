@@ -7,7 +7,7 @@ import { IconBell } from "./Icons.js";
 export interface AppNotification {
   id: string;
   workspaceId: string;
-  type: "mention" | "task_assigned" | "comment_reply";
+  type: "mention" | "task_assigned" | "comment_reply" | "due_date_soon";
   payload: {
     taskId?: string;
     projectId?: string;
@@ -28,6 +28,8 @@ function describeNotification(n: AppNotification): string {
       return "You were assigned to a task.";
     case "comment_reply":
       return "Someone replied to your comment.";
+    case "due_date_soon":
+      return "A task you're assigned to is due soon.";
     default:
       return "You have a new notification.";
   }

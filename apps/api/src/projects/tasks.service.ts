@@ -298,7 +298,10 @@ export async function updateTask(
   if (rest.parentTaskId !== undefined) data.parentTaskId = rest.parentTaskId;
   if (rest.milestoneId !== undefined) data.milestoneId = rest.milestoneId;
   if (rest.startDate !== undefined) data.startDate = rest.startDate;
-  if (rest.dueDate !== undefined) data.dueDate = rest.dueDate;
+  if (rest.dueDate !== undefined) {
+    data.dueDate = rest.dueDate;
+    data.dueReminderSentAt = null;
+  }
   // Explicit checkbox completion — independent of `moveTask`'s automatic
   // done-category completion below: this never touches `columnId`, so a
   // checked-off task stays in whatever column it was already in and simply
