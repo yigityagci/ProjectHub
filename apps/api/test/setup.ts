@@ -37,3 +37,8 @@ process.env.RATE_LIMIT_PASSWORD_RESET_WINDOW_MINUTES ??= "15";
 // test-run files out of the real dev `uploads/` folder.
 process.env.UPLOAD_DIR ??= "uploads-test";
 process.env.UPLOAD_MAX_SIZE_BYTES ??= String(1024 * 1024);
+// The shared scheduler's interval must be far shorter than production's in
+// tests, so tests can observe several ticks inside a normal assertion window.
+// A tick with no registered handlers does no I/O, so a fast interval costs
+// nothing across the ~30 test files that each build a server.
+process.env.SCHEDULER_POLL_INTERVAL_MS ??= "50";

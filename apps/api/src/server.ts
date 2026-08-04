@@ -35,6 +35,7 @@ import { registerNotificationRoutes } from "./notifications/notifications.routes
 import { registerActivityRoutes } from "./activity/activity.routes.js";
 import { registerAnalyticsRoutes } from "./analytics/analytics.routes.js";
 import { initRealtime } from "./realtime/realtime.js";
+import { initScheduler } from "./core/scheduler.js";
 
 export async function buildServer(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -144,6 +145,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await registerAnalyticsRoutes(app);
 
   initRealtime(app);
+  initScheduler(app);
 
   return app;
 }

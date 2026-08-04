@@ -186,7 +186,8 @@ the full current `apps/api/src/` layout, not just the Phase 1 subset:
 ```
 apps/api/src/
   config/env.ts     Zod-validated environment configuration, fail-fast
-  core/             prisma, redis, logger (Pino + redaction), errors, health
+  core/             prisma, redis, logger (Pino + redaction), errors, health,
+                    scheduler (shared setInterval poller + atomic claim helper)
   auth/             password hashing, sessions, register/login/logout/me, first-admin setup
   rbac/             request context, guards (requireAuth/requireMembership/requirePermission/
                     requireProjectAccess/requireCategoryAccess), rank/last-owner/last-category rules
