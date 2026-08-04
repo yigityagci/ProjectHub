@@ -36,6 +36,7 @@ import { registerActivityRoutes } from "./activity/activity.routes.js";
 import { registerAnalyticsRoutes } from "./analytics/analytics.routes.js";
 import { initRealtime } from "./realtime/realtime.js";
 import { initScheduler } from "./core/scheduler.js";
+import { recurringTasksHandler } from "./projects/recurrence.service.js";
 
 export async function buildServer(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -145,7 +146,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await registerAnalyticsRoutes(app);
 
   initRealtime(app);
-  initScheduler(app);
+  initScheduler(app, { handlers: [recurringTasksHandler] });
 
   return app;
 }

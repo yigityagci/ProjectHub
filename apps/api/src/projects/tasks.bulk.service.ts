@@ -16,6 +16,7 @@ export type TaskWithRelations = NonNullable<Awaited<ReturnType<typeof getTaskOrT
 const TASK_INCLUDE = {
   assignees: { include: { user: true } },
   labels: { include: { label: true } },
+  recurrenceTemplate: { select: { id: true, title: true } },
 } as const;
 
 const VERSION_CONFLICT_MESSAGE =

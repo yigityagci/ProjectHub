@@ -1,3 +1,5 @@
+import type { RecurrenceRule } from "@projecthub/shared";
+
 export interface TaskAssignee {
   userId: string;
   displayName: string;
@@ -29,6 +31,15 @@ export interface Task {
   categoryId: string;
   columnId: string;
   parentTaskId: string | null;
+  // Recurring tasks — wire shape matches
+  // apps/api/src/projects/task-serialization.ts#serializeTask. No separate
+  // "isRecurrenceTemplate" boolean: a task IS a recurrence template exactly
+  // when `recurrenceRule !== null`.
+  recurrenceRule: RecurrenceRule | null;
+  nextRunAt: string | null;
+  recurrenceCount: number;
+  recurrenceTemplateId: string | null;
+  recurrenceTemplateTitle: string | null;
   milestoneId: string | null;
   title: string;
   description: string | null;

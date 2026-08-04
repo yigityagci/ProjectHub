@@ -551,6 +551,45 @@ model Task {
   parentTaskId String?
   parentTask   Task?        @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
   subtasks     Task[]       @relation("TaskSubtasks")
+  // Recurring tasks — a SEPARATE self-relation from parentTaskId/
+  // "TaskSubtasks" above (deliberately so: a task spawned by a recurring
+  // template is a sibling task in the same category, never a subtask of the
+  // template — see recurrence.service.ts and assertCanBeRecurrenceTemplate
+  // in tasks.service.ts, which enforce that a subtask can never be/become a
+  // template and a template's own instances can never chain into further
+  // templates).
+  //
+  // onDelete: SetNull (not Cascade): deleting a template must never delete
+  // the real work items it already produced. An instance's
+  // recurrenceTemplateId simply goes null on template deletion — the
+  // instance survives as an ordinary task.
+  //
+  // `recurrenceRule`'s shape (frequency/interval/end-condition) is enforced
+  // exclusively by a zod schema in packages/shared (recurrenceRuleSchema)
+  // and re-validated in tasks.service.ts — NEVER by the database. Same
+  // precedent as CustomFieldDefinition.options above: Prisma cannot express
+  // "this Json column's shape depends on runtime business rules", so this
+  // invariant lives entirely at the application layer.
+  //
+  // `nextRunAt` null while `recurrenceRule` is non-null means the recurrence
+  // is EXHAUSTED (its end condition — `until` or `count` — was reached).
+  // This is a first-class "finished" state, not data loss: SQL NULL never
+  // matches the scheduler's `{ lte: now }` claim filter again, so an
+  // exhausted template costs nothing forever rather than needing to be
+  // separately archived or deleted.
+  //
+  // `recurrenceCount` is a stored counter serving as BOTH the next
+  // occurrence's 0-based index and the count of instances spawned so far.
+  // Deliberately NOT derived by counting `recurrenceInstances` rows:
+  // instances are user-deletable, and deriving the count from them would
+  // incorrectly "un-exhaust" a finished recurrence if the user deletes a
+  // spawned instance.
+  recurrenceTemplateId String?
+  recurrenceTemplate   Task?      @relation("TaskRecurrenceInstances", fields: [recurrenceTemplateId], references: [id], onDelete: SetNull)
+  recurrenceInstances  Task[]     @relation("TaskRecurrenceInstances")
+  recurrenceRule       Json?
+  nextRunAt            DateTime?
+  recurrenceCount      Int        @default(0)
   milestoneId  String?
   milestone    Milestone?   @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
   title        String
@@ -585,6 +624,11 @@ model Task {
   @@index([parentTaskId])
   @@index([milestoneId])
   @@index([creatorId])
+  // The recurrence scheduler's claim query filters on nextRunAt <= now.
+  @@index([nextRunAt])
+  // A template's spawned instances (and the frontend badge's reverse lookup
+  // from an instance back to its template's title) are looked up by this.
+  @@index([recurrenceTemplateId])
   @@map("tasks")
 }
 

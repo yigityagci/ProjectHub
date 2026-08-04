@@ -8,6 +8,7 @@ export * from "./dto/project.js";
 export * from "./dto/category.js";
 export * from "./dto/board.js";
 export * from "./dto/task.js";
+export * from "./dto/recurrence.js";
 export * from "./dto/label.js";
 export * from "./dto/custom-field.js";
 export * from "./dto/task-template.js";

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { recurrenceRuleInputSchema } from "./recurrence.js";
 
 export const TASK_PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
@@ -56,8 +57,24 @@ export const updateTaskSchema = z
     startDate: z.coerce.date().nullable().optional(),
     dueDate: z.coerce.date().nullable().optional(),
     completed: z.boolean().optional(),
+    // Recurrence is only ever set on an already-existing task (never at
+    // creation time — see createTaskSchema's deliberate omission of this
+    // field). This is the ONLY way a client can touch recurrence:
+    // `nextRunAt`/`recurrenceCount`/`recurrenceTemplateId` never appear in
+    // any zod schema, which makes them automatically-422 on any
+    // client-supplied value, since this object is `.strict()`.
+    recurrenceRule: recurrenceRuleInputSchema.nullable().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.parentTaskId != null && value.recurrenceRule != null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A subtask can't be a recurring task.",
+        path: ["recurrenceRule"],
+      });
+    }
+  });
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
 
 export const moveTaskSchema = z

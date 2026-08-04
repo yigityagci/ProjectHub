@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import type { CreateTaskInput, TaskListQuery, UpdateTaskInput } from "@projecthub/shared";
 import { prisma } from "../core/prisma.js";
 import { NotFoundError, ValidationError } from "../core/errors.js";
@@ -50,6 +50,7 @@ export async function listTasks(categoryId: string, filters: TaskListQuery = {})
     include: {
       assignees: { include: { user: true } },
       labels: { include: { label: true } },
+      recurrenceTemplate: { select: { id: true, title: true } },
     },
     orderBy: [{ columnId: "asc" }, { position: "asc" }],
   });
@@ -61,6 +62,7 @@ export async function getTaskOrThrow(workspaceId: string, categoryId: string, ta
     include: {
       assignees: { include: { user: true } },
       labels: { include: { label: true } },
+      recurrenceTemplate: { select: { id: true, title: true } },
     },
   });
   if (!task) {
@@ -105,6 +107,24 @@ async function validateSubtaskNesting(
   }
 }
 
+/**
+ * Enforces "only a non-subtask, non-instance task can become a recurrence
+ * template" (a template can't itself be a spawned instance — no chains —
+ * and can't itself be a subtask, mirroring the one-level-nesting spirit of
+ * validateSubtaskNesting above, but this is a genuinely separate rule).
+ */
+function assertCanBeRecurrenceTemplate(
+  current: { recurrenceTemplateId: string | null },
+  effectiveParentTaskId: string | null,
+): void {
+  if (effectiveParentTaskId !== null) {
+    throw new ValidationError("A subtask can't be made recurring.");
+  }
+  if (current.recurrenceTemplateId !== null) {
+    throw new ValidationError("A task created by a recurring task can't itself be recurring.");
+  }
+}
+
 async function resolveDefaultColumnId(categoryId: string): Promise<string> {
   const column = await prisma.boardColumn.findFirst({
     where: { categoryId },
@@ -123,6 +143,8 @@ export interface CreateTaskParams {
   creatorId: string;
   creatorDisplayName: string;
   input: CreateTaskInput;
+  /** Server-derived only — set exclusively by the recurrence scheduler handler (recurrence.service.ts). Never reachable from a request body. */
+  recurrenceTemplateId?: string | null;
 }
 
 export async function createTask(params: CreateTaskParams) {
@@ -180,6 +202,7 @@ export async function createTask(params: CreateTaskParams) {
         categoryId,
         columnId,
         parentTaskId,
+        recurrenceTemplateId: params.recurrenceTemplateId ?? null,
         milestoneId: input.milestoneId ?? null,
         title: input.title,
         description: input.description ?? null,
@@ -192,6 +215,7 @@ export async function createTask(params: CreateTaskParams) {
       include: {
         assignees: { include: { user: true } },
         labels: { include: { label: true } },
+        recurrenceTemplate: { select: { id: true, title: true } },
       },
     });
 
@@ -236,6 +260,36 @@ export async function updateTask(
     await validateSubtaskNesting(workspaceId, categoryId, taskId, input.parentTaskId);
   }
 
+  // A recurrence-touching PATCH (setting OR clearing recurrenceRule) or one
+  // that sets a parentTaskId needs the row's CURRENT
+  // parentTaskId/recurrenceTemplateId/recurrenceRule to enforce the
+  // recurring<->subtask exclusion rules below, before the guarded
+  // updateMany — so a 422 here is never masked by a spurious 409.
+  let currentForRecurrence: { parentTaskId: string | null; recurrenceTemplateId: string | null; recurrenceRule: unknown } | null =
+    null;
+  if (input.recurrenceRule !== undefined || input.parentTaskId != null) {
+    currentForRecurrence = await prisma.task.findFirst({
+      where: { id: taskId, workspaceId, categoryId },
+      select: { parentTaskId: true, recurrenceTemplateId: true, recurrenceRule: true },
+    });
+    if (!currentForRecurrence) {
+      throw new NotFoundError(TASK_NOT_FOUND_MESSAGE);
+    }
+  }
+
+  if (input.recurrenceRule !== undefined && input.recurrenceRule !== null) {
+    const effectiveParentTaskId = input.parentTaskId !== undefined ? input.parentTaskId : currentForRecurrence!.parentTaskId;
+    assertCanBeRecurrenceTemplate(currentForRecurrence!, effectiveParentTaskId);
+  }
+
+  if (
+    input.parentTaskId != null &&
+    currentForRecurrence!.recurrenceRule != null &&
+    input.recurrenceRule === undefined
+  ) {
+    throw new ValidationError("A recurring task can't be made a subtask. Stop the recurrence first.");
+  }
+
   const { version, ...rest } = input;
   const data: Record<string, unknown> = {};
   if (rest.title !== undefined) data.title = rest.title;
@@ -253,6 +307,21 @@ export async function updateTask(
   // only ever expresses true/false intent; the server alone decides the
   // stored timestamp.
   if (rest.completed !== undefined) data.completedAt = rest.completed ? new Date() : null;
+  // Any write of a non-null rule (brand new or edited) resets nextRunAt to
+  // the rule's own startAt and recurrenceCount to 0 — there is no "adjust in
+  // place" concept in v1. Clearing (null) resets the same trio to their
+  // not-recurring defaults.
+  if (rest.recurrenceRule !== undefined) {
+    if (rest.recurrenceRule === null) {
+      data.recurrenceRule = Prisma.DbNull;
+      data.nextRunAt = null;
+      data.recurrenceCount = 0;
+    } else {
+      data.recurrenceRule = rest.recurrenceRule as Prisma.InputJsonValue;
+      data.nextRunAt = new Date(rest.recurrenceRule.startAt);
+      data.recurrenceCount = 0;
+    }
+  }
 
   const result = await prisma.task.updateMany({
     where: { id: taskId, workspaceId, categoryId, version },
@@ -262,7 +331,11 @@ export async function updateTask(
   if (result.count === 0) {
     const current = await prisma.task.findFirst({
       where: { id: taskId, workspaceId, categoryId },
-      include: { assignees: { include: { user: true } }, labels: { include: { label: true } } },
+      include: {
+        assignees: { include: { user: true } },
+        labels: { include: { label: true } },
+        recurrenceTemplate: { select: { id: true, title: true } },
+      },
     });
     if (!current) {
       throw new NotFoundError(TASK_NOT_FOUND_MESSAGE);
@@ -384,7 +457,11 @@ export async function moveTask(
   if (result.count === 0) {
     const current = await prisma.task.findFirst({
       where: { id: taskId, workspaceId, categoryId },
-      include: { assignees: { include: { user: true } }, labels: { include: { label: true } } },
+      include: {
+        assignees: { include: { user: true } },
+        labels: { include: { label: true } },
+        recurrenceTemplate: { select: { id: true, title: true } },
+      },
     });
     if (!current) {
       throw new NotFoundError(TASK_NOT_FOUND_MESSAGE);

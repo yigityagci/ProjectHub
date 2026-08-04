@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { CustomFieldType } from "@projecthub/shared";
+import type { CustomFieldType, RecurrenceFrequency, RecurrenceRule } from "@projecthub/shared";
+import { RECURRENCE_FREQUENCIES } from "@projecthub/shared";
 import { api, ApiError } from "../lib/api.js";
 import { getSocket } from "../lib/socket.js";
 import { renderCommentBody } from "../lib/mentions.js";
@@ -67,6 +68,44 @@ const CAN_COMMENT_ROLES = CAN_EDIT_ROLES;
 const ELEVATED_ROLES = new Set(["OWNER", "ADMIN"]);
 const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 
+// "Make recurring" section: singular/plural unit words for the summary
+// sentence and the "Repeats every [N] [unit]" form row.
+const RECURRENCE_UNIT_LABELS: Record<RecurrenceFrequency, { singular: string; plural: string }> = {
+  daily: { singular: "day", plural: "days" },
+  weekly: { singular: "week", plural: "weeks" },
+  monthly: { singular: "month", plural: "months" },
+};
+
+/** Plain YYYY-MM-DD formatting for an ISO timestamp — deliberately never
+ * `toLocaleDateString`, so the summary sentence reads the same regardless
+ * of the viewer's locale. */
+function formatIsoDatePlain(iso: string): string {
+  return iso.slice(0, 10);
+}
+
+/**
+ * Builds the "Repeats every ... [until DATE | N occurrences remaining]."
+ * summary sentence shown both in the read-only view and above the prefilled
+ * form. `spawnedSoFar` is the task's own `recurrenceCount` (how many
+ * occurrences have already been spawned), used to compute how many remain
+ * for a count-bounded recurrence.
+ */
+function formatRecurrenceSummary(rule: RecurrenceRule, spawnedSoFar: number): string {
+  const unit = RECURRENCE_UNIT_LABELS[rule.freq];
+  const base = rule.interval === 1 ? `Repeats every ${unit.singular}` : `Repeats every ${rule.interval} ${unit.plural}`;
+
+  if (rule.until != null) {
+    return `${base} until ${formatIsoDatePlain(rule.until)}.`;
+  }
+  if (rule.count != null) {
+    const remaining = rule.count - spawnedSoFar;
+    if (remaining > 1) return `${base}. ${remaining} occurrences remaining.`;
+    if (remaining === 1) return `${base}. 1 occurrence remaining.`;
+    return `${base}. — no occurrences remaining.`;
+  }
+  return `${base}.`;
+}
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -97,6 +136,7 @@ export default function TaskDetailModal({
   onClose,
   onUpdated,
   onDeleted,
+  onOpenTask,
 }: {
   workspaceId: string;
   projectId: string;
@@ -108,6 +148,7 @@ export default function TaskDetailModal({
   onClose: () => void;
   onUpdated: (task: Task) => void;
   onDeleted: (taskId: string) => void;
+  onOpenTask?: (taskId: string) => void;
 }) {
   const [task, setTask] = useState<Task | null>(null);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
@@ -136,6 +177,20 @@ export default function TaskDetailModal({
   const [startDate, setStartDate] = useState("");
   const [dueDate, setDueDate] = useState("");
 
+  // "Make recurring" section drafts — re-seeded from `task.recurrenceRule`
+  // inside applyTask, same "reload wins" convention as title/description/etc.
+  // above (recurrence is a compound, independently-persisted rule, but it
+  // lives on the task itself, not a separate sub-resource like custom
+  // fields, so it's seeded directly in applyTask rather than a sibling
+  // function).
+  const [recurrenceFreq, setRecurrenceFreq] = useState<RecurrenceFrequency>("weekly");
+  const [recurrenceInterval, setRecurrenceInterval] = useState("1");
+  const [recurrenceEndMode, setRecurrenceEndMode] = useState<"never" | "onDate" | "afterCount">("never");
+  const [recurrenceUntil, setRecurrenceUntil] = useState("");
+  const [recurrenceCountDraft, setRecurrenceCountDraft] = useState("1");
+  const [recurrenceSaving, setRecurrenceSaving] = useState(false);
+  const [recurrenceError, setRecurrenceError] = useState<string | null>(null);
+
   const [commentDraft, setCommentDraft] = useState("");
   const [mentionMatch, setMentionMatch] = useState<{ start: number; query: string } | null>(null);
   const [postingComment, setPostingComment] = useState(false);
@@ -161,6 +216,22 @@ export default function TaskDetailModal({
     setPriority(t.priority);
     setStartDate(formatDateInput(t.startDate));
     setDueDate(formatDateInput(t.dueDate));
+
+    const rule = t.recurrenceRule;
+    setRecurrenceFreq(rule?.freq ?? "weekly");
+    setRecurrenceInterval(rule ? String(rule.interval) : "1");
+    if (rule?.until) {
+      setRecurrenceEndMode("onDate");
+      setRecurrenceUntil(formatDateInput(rule.until));
+    } else if (rule?.count != null) {
+      setRecurrenceEndMode("afterCount");
+      setRecurrenceCountDraft(String(rule.count));
+    } else {
+      setRecurrenceEndMode("never");
+      setRecurrenceUntil("");
+      setRecurrenceCountDraft("1");
+    }
+    setRecurrenceError(null);
   }
 
   // Re-seeds the text/number/date/url drafts from whatever the server just
@@ -329,6 +400,113 @@ export default function TaskDetailModal({
       onDeleted(taskId);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not delete this task.");
+    }
+  }
+
+  // "Make recurring" section — a compound, independently-persisted rule
+  // (like Custom Fields), so it's validated and saved on its own explicit
+  // Save action, never bundled into handleSave's title/description/etc.
+  // PATCH. Mirrors handleSave's exact call/response-handling shape,
+  // including 409/version-conflict handling, but keeps its own LOCAL error
+  // banner (recurrenceError) rather than the modal's shared `error` state.
+  async function handleSaveRecurrence() {
+    if (!task) return;
+    setRecurrenceError(null);
+
+    if (!recurrenceInterval.trim()) {
+      setRecurrenceError("Enter how often this task should repeat.");
+      return;
+    }
+    const interval = Number(recurrenceInterval);
+    if (!Number.isInteger(interval) || interval < 1) {
+      setRecurrenceError("Enter a whole number of 1 or more.");
+      return;
+    }
+    if (recurrenceEndMode === "onDate") {
+      if (!recurrenceUntil) {
+        setRecurrenceError("Choose an end date, or pick a different ending option.");
+        return;
+      }
+      const today = new Date().toISOString().slice(0, 10);
+      if (recurrenceUntil < today) {
+        setRecurrenceError("Choose an end date that is today or later.");
+        return;
+      }
+    }
+    if (recurrenceEndMode === "afterCount") {
+      const count = Number(recurrenceCountDraft);
+      if (!recurrenceCountDraft.trim() || !Number.isInteger(count) || count < 1) {
+        setRecurrenceError("Enter 1 or more occurrences.");
+        return;
+      }
+    }
+
+    setRecurrenceSaving(true);
+    try {
+      // ANY write of a non-null rule (brand new or edited) resets
+      // nextRunAt/recurrenceCount server-side — there is no "adjust in
+      // place" concept in v1 — so starting a fresh `startAt = now()` on
+      // every save is correct, not just simplest.
+      const payload = {
+        freq: recurrenceFreq,
+        interval,
+        startAt: new Date().toISOString(),
+        until: recurrenceEndMode === "onDate" ? new Date(recurrenceUntil).toISOString() : null,
+        count: recurrenceEndMode === "afterCount" ? Number(recurrenceCountDraft) : null,
+      };
+      const res = await api.patch<{ task: Task }>(`${base}/tasks/${taskId}`, {
+        version: task.version,
+        recurrenceRule: payload,
+      });
+      applyTask(res.task);
+      onUpdated(res.task);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        const body = err.body as { currentTask?: Task } | undefined;
+        if (body?.currentTask) {
+          setConflictTask(body.currentTask);
+        } else {
+          await handleReload();
+        }
+      } else {
+        setRecurrenceError(err instanceof ApiError ? err.message : "Could not save this recurrence rule.");
+      }
+    } finally {
+      setRecurrenceSaving(false);
+    }
+  }
+
+  async function handleRemoveRecurrence() {
+    if (!task) return;
+    if (
+      !confirm(
+        "Stop this task from repeating? This won't affect instances that were already created — only future ones will no longer be generated.",
+      )
+    ) {
+      return;
+    }
+    setRecurrenceSaving(true);
+    setRecurrenceError(null);
+    try {
+      const res = await api.patch<{ task: Task }>(`${base}/tasks/${taskId}`, {
+        version: task.version,
+        recurrenceRule: null,
+      });
+      applyTask(res.task);
+      onUpdated(res.task);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        const body = err.body as { currentTask?: Task } | undefined;
+        if (body?.currentTask) {
+          setConflictTask(body.currentTask);
+        } else {
+          await handleReload();
+        }
+      } else {
+        setRecurrenceError(err instanceof ApiError ? err.message : "Could not save this recurrence rule.");
+      }
+    } finally {
+      setRecurrenceSaving(false);
     }
   }
 
@@ -887,6 +1065,40 @@ export default function TaskDetailModal({
           </button>
         </div>
 
+        {task.recurrenceTemplateId &&
+          (task.recurrenceTemplateTitle !== null ? (
+            <button
+              type="button"
+              className="ph-badge ph-badge-recurring-instance"
+              style={{
+                maxWidth: 320,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                display: "block",
+                marginBottom: "0.5rem",
+              }}
+              title={`This task was automatically created from the recurring task "${task.recurrenceTemplateTitle}". Click to open it.`}
+              onClick={() => onOpenTask?.(task.recurrenceTemplateId!)}
+            >
+              Spawned from &quot;{task.recurrenceTemplateTitle}&quot;
+            </button>
+          ) : (
+            <span
+              className="ph-badge ph-badge-recurring-instance"
+              style={{
+                maxWidth: 320,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                display: "block",
+                marginBottom: "0.5rem",
+              }}
+            >
+              Spawned from a recurring task
+            </span>
+          ))}
+
         {conflictTask && (
           <div className="ph-conflict-banner">
             <span>
@@ -1104,6 +1316,144 @@ export default function TaskDetailModal({
               )}
             </div>
           </div>
+        </div>
+
+        <div className="ph-modal-section">
+          <h3>Make recurring</h3>
+          {(() => {
+            const isInstance = task.recurrenceTemplateId !== null;
+            const isSubtask = task.parentTaskId !== null;
+            const hasRule = task.recurrenceRule !== null;
+
+            if (isInstance) {
+              return <p style={{ margin: 0, fontSize: "0.85rem" }}>Tasks created by a recurring task can't themselves be made recurring.</p>;
+            }
+            if (isSubtask) {
+              return <p style={{ margin: 0, fontSize: "0.85rem" }}>Subtasks can't be made recurring.</p>;
+            }
+
+            if (!canEdit) {
+              return (
+                <p style={{ margin: 0, fontSize: "0.85rem" }}>
+                  {hasRule ? formatRecurrenceSummary(task.recurrenceRule!, task.recurrenceCount) : "This task doesn't repeat."}
+                </p>
+              );
+            }
+
+            return (
+              <div>
+                {hasRule && (
+                  <p style={{ fontWeight: 600, marginTop: 0 }}>
+                    {formatRecurrenceSummary(task.recurrenceRule!, task.recurrenceCount)}
+                  </p>
+                )}
+                {!hasRule && (
+                  <p style={{ fontSize: "0.85rem", color: "var(--ph-muted)" }}>
+                    Choose how often this task repeats and, optionally, when it should stop. A new copy of this task
+                    will be created automatically each time it's due.
+                  </p>
+                )}
+
+                {recurrenceError && <div className="ph-alert ph-alert-error">{recurrenceError}</div>}
+
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                  <label htmlFor="ph-recurrence-interval">Repeats every</label>
+                  <input
+                    id="ph-recurrence-interval"
+                    type="number"
+                    min={1}
+                    max={99}
+                    style={{ width: "5rem" }}
+                    value={recurrenceInterval}
+                    onChange={(e) => setRecurrenceInterval(e.target.value)}
+                  />
+                  <select
+                    aria-label="Recurrence frequency"
+                    value={recurrenceFreq}
+                    onChange={(e) => setRecurrenceFreq(e.target.value as RecurrenceFrequency)}
+                  >
+                    {RECURRENCE_FREQUENCIES.map((freq) => (
+                      <option key={freq} value={freq}>
+                        {RECURRENCE_UNIT_LABELS[freq].singular}(s)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <fieldset style={{ border: "1px solid var(--ph-border)", borderRadius: "0.4rem", padding: "0.6rem", marginBottom: "0.75rem" }}>
+                  <legend style={{ fontSize: "0.85rem" }}>Ends</legend>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                      <input
+                        type="radio"
+                        name="recurrence-end-mode"
+                        checked={recurrenceEndMode === "never"}
+                        onChange={() => setRecurrenceEndMode("never")}
+                      />
+                      Never
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                      <input
+                        type="radio"
+                        name="recurrence-end-mode"
+                        checked={recurrenceEndMode === "onDate"}
+                        onChange={() => setRecurrenceEndMode("onDate")}
+                      />
+                      On
+                      <input
+                        type="date"
+                        disabled={recurrenceEndMode !== "onDate"}
+                        value={recurrenceUntil}
+                        onChange={(e) => setRecurrenceUntil(e.target.value)}
+                      />
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                      <input
+                        type="radio"
+                        name="recurrence-end-mode"
+                        checked={recurrenceEndMode === "afterCount"}
+                        onChange={() => setRecurrenceEndMode("afterCount")}
+                      />
+                      After
+                      <input
+                        type="number"
+                        min={1}
+                        style={{ width: "5rem" }}
+                        disabled={recurrenceEndMode !== "afterCount"}
+                        value={recurrenceCountDraft}
+                        onChange={(e) => setRecurrenceCountDraft(e.target.value)}
+                      />
+                      occurrence(s)
+                    </label>
+                  </div>
+                </fieldset>
+
+                <button
+                  className="ph-button"
+                  style={{ width: "auto" }}
+                  disabled={recurrenceSaving}
+                  onClick={handleSaveRecurrence}
+                >
+                  {recurrenceSaving ? "Saving..." : hasRule ? "Save recurrence" : "Start recurring"}
+                </button>
+                {hasRule && (
+                  <button
+                    className="ph-button ph-button-secondary"
+                    style={{
+                      width: "auto",
+                      marginLeft: "0.6rem",
+                      borderColor: "var(--ph-error)",
+                      color: "var(--ph-error)",
+                    }}
+                    disabled={recurrenceSaving}
+                    onClick={handleRemoveRecurrence}
+                  >
+                    Remove recurrence
+                  </button>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         <div className="ph-modal-section">

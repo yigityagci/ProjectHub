@@ -709,6 +709,16 @@ select:disabled {
   color: var(--ph-warning);
 }
 
+/* Task detail modal: marks a task that was automatically spawned by a
+   recurring task, linking back to its template — same visual recipe as
+   .ph-badge-current, styled as a clickable pill. */
+.ph-badge-recurring-instance {
+  background: rgba(var(--ph-primary-rgb), 0.14);
+  color: var(--ph-primary);
+  border: none;
+  cursor: pointer;
+}
+
 /* Priority badges — filled pill, tinted background + matching-hue text
    (used wherever a task's priority is shown as text rather than just the
    compact dot, e.g. the task detail modal's read-only view). */

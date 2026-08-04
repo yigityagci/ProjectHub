@@ -36,8 +36,7 @@ import { emitToCategory } from "../realtime/realtime.js";
 import { createNotification } from "../notifications/notifications.service.js";
 import { createActivityEvent, broadcastActivityEvent } from "../activity/activity.service.js";
 import { prisma } from "../core/prisma.js";
-import { isDeletedUser } from "../users/user-serialization.js";
-import type { UserStatus } from "@prisma/client";
+import { serializeTask } from "./task-serialization.js";
 
 /**
  * Bulk actions are permission-checked per action-type inside the handler
@@ -58,61 +57,6 @@ const BULK_ACTION_PERMISSION: Record<BulkTaskAction, Permission> = {
 
 /** Caps request amplification independent of the `taskIds` <= 100 Zod cap. */
 const BULK_TASK_ACTION_RATE_LIMIT = { max: 30, timeWindow: "1 minute" };
-
-interface TaskWithRelations {
-  id: string;
-  projectId: string;
-  categoryId: string;
-  columnId: string;
-  parentTaskId: string | null;
-  milestoneId: string | null;
-  title: string;
-  description: string | null;
-  priority: string;
-  position: number;
-  creatorId: string;
-  startDate: Date | null;
-  dueDate: Date | null;
-  completedAt: Date | null;
-  version: number;
-  createdAt: Date;
-  updatedAt: Date;
-  assignees: { userId: string; user: { id: string; displayName: string; email: string; status: UserStatus } }[];
-  labels: { labelId: string; label: { id: string; name: string; color: string } }[];
-}
-
-function serializeTask(task: TaskWithRelations) {
-  return {
-    id: task.id,
-    projectId: task.projectId,
-    categoryId: task.categoryId,
-    columnId: task.columnId,
-    parentTaskId: task.parentTaskId,
-    milestoneId: task.milestoneId,
-    title: task.title,
-    description: task.description,
-    priority: task.priority,
-    position: task.position,
-    creatorId: task.creatorId,
-    startDate: task.startDate,
-    dueDate: task.dueDate,
-    completedAt: task.completedAt,
-    version: task.version,
-    createdAt: task.createdAt,
-    updatedAt: task.updatedAt,
-    assignees: task.assignees.map((a) => ({
-      userId: a.userId,
-      displayName: a.user.displayName,
-      email: a.user.email,
-      isDeleted: isDeletedUser(a.user),
-    })),
-    labels: task.labels.map((l) => ({
-      labelId: l.labelId,
-      name: l.label.name,
-      color: l.label.color,
-    })),
-  };
-}
 
 /**
  * Tasks are category-scoped: a task belongs to exactly one category

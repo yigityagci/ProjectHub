@@ -1623,6 +1623,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
           onClose={() => setSelectedTaskId(null)}
           onUpdated={handleTaskUpdated}
           onDeleted={handleTaskDeleted}
+          onOpenTask={(id) => setSelectedTaskId(id)}
         />
       )}
     </div>

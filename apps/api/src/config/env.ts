@@ -44,9 +44,10 @@ const envSchema = z
     UPLOAD_DIR: z.string().default("uploads"),
     UPLOAD_MAX_SIZE_BYTES: z.coerce.number().positive().default(25 * 1024 * 1024),
     // Shared in-process scheduler (core/scheduler.ts): how often the single
-    // setInterval poller wakes up. A tick with no registered handlers does no
-    // I/O at all, so this is free until a feature registers one. Operators
-    // running minute-granularity work can raise this substantially.
+    // setInterval poller wakes up. Its first real consumer is the recurring
+    // tasks handler (projects/recurrence.service.ts), registered in
+    // server.ts. Operators running minute-granularity work can raise this
+    // substantially.
     SCHEDULER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
   })
   .superRefine((value, ctx) => {
