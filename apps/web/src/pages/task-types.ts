@@ -11,6 +11,18 @@ export interface TaskLabelRef {
   color: string;
 }
 
+export interface TaskTemplate {
+  id: string;
+  projectId: string;
+  name: string;
+  titleTemplate: string;
+  description: string | null;
+  priority: "low" | "medium" | "high" | "urgent" | null;
+  defaultLabelIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Task {
   id: string;
   projectId: string;

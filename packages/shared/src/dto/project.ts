@@ -73,3 +73,18 @@ export const projectListQuerySchema = z
   })
   .strict();
 export type ProjectListQuery = z.infer<typeof projectListQuerySchema>;
+
+/**
+ * "Duplicate project" (stateless one-shot copy of a project's structure, NOT
+ * a persisted template). Only `name` is client-supplied: description and
+ * visibility are always copied server-side from the source project, and the
+ * new project always starts unarchived in the default status — see
+ * projects.duplicate.service.ts. Deliberately does not accept a visibility
+ * field.
+ */
+export const duplicateProjectSchema = z
+  .object({
+    name: projectNameSchema,
+  })
+  .strict();
+export type DuplicateProjectInput = z.infer<typeof duplicateProjectSchema>;

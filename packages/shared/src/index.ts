@@ -10,6 +10,7 @@ export * from "./dto/board.js";
 export * from "./dto/task.js";
 export * from "./dto/label.js";
 export * from "./dto/custom-field.js";
+export * from "./dto/task-template.js";
 export * from "./dto/milestone.js";
 export * from "./dto/comment.js";
 export * from "./dto/notification.js";

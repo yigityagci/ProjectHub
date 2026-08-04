@@ -38,7 +38,7 @@ import TaskDetailModal from "./TaskDetailModal.js";
 import CreateTaskModal from "./CreateTaskModal.js";
 import BulkActionBar from "./BulkActionBar.js";
 import type { CurrentUser } from "../App.js";
-import type { Task } from "./task-types.js";
+import type { Task, TaskTemplate } from "./task-types.js";
 
 interface ProjectLabel {
   id: string;
@@ -255,6 +255,10 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
   // effect below, which wipes it unconditionally on every such switch).
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [projectLabels, setProjectLabels] = useState<ProjectLabel[]>([]);
+  // "Create from template" quick action (see CreateTaskModal.tsx). Failure
+  // to load templates is non-fatal — the quick-action select simply stays
+  // empty/absent, never blocking the rest of the board.
+  const [taskTemplates, setTaskTemplates] = useState<TaskTemplate[]>([]);
 
   // Category management (rename/visibility/members/delete) — same
   // simple-inline-form pattern as column management below, gated on
@@ -348,15 +352,18 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     // openCategoryManager's own best-effort fetch), so it's a separate,
     // non-fatal try/catch.
     try {
-      const [membersRes, labelsRes] = await Promise.all([
+      const [membersRes, labelsRes, templatesRes] = await Promise.all([
         api.get<{ members: WorkspaceMember[] }>(`/api/workspaces/${workspaceId}/members`),
         api.get<{ labels: ProjectLabel[] }>(`${projectBase}/labels`),
+        api.get<{ templates: TaskTemplate[] }>(`${projectBase}/task-templates`),
       ]);
       setWorkspaceMembers(membersRes.members);
       setProjectLabels(labelsRes.labels);
+      setTaskTemplates(templatesRes.templates);
     } catch {
-      // Non-critical — only the bulk bar's Assign/Add-label pickers would
-      // show stale/empty options.
+      // Non-critical — only the bulk bar's Assign/Add-label pickers, and the
+      // create-task modal's "start from a template" select, would show
+      // stale/empty options.
     }
   }
 
@@ -753,6 +760,44 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
       showToast(err instanceof ApiError ? err.message : "Could not create this task.", true);
       return null;
     }
+  }
+
+  /**
+   * Best-effort "create from template" label application: attaches each of
+   * a just-created task's template-supplied default labels one at a time
+   * (the existing per-label attach endpoint, gated by task.edit — there is
+   * no bulk-attach-on-create endpoint, and createTaskSchema deliberately
+   * never grew a `labelIds` key). A failed individual attach never blocks
+   * the others and never surfaces a blocking error — the task itself always
+   * exists regardless. Returns the number of labels actually applied, for
+   * the caller's toast.
+   */
+  async function applyTemplateLabels(taskId: string, labelIds: string[]): Promise<number> {
+    if (!workspaceId || !projectId || labelIds.length === 0) return 0;
+    let appliedCount = 0;
+    for (const labelId of labelIds) {
+      // Defense against a stale/deleted label id from a template fetched
+      // before this project's label catalog changed.
+      if (!projectLabels.some((l) => l.id === labelId)) continue;
+      try {
+        await api.post(`${base}/tasks/${taskId}/labels/${labelId}`);
+        appliedCount += 1;
+      } catch {
+        // Best-effort — a failed individual label-attach should not block
+        // the others or surface a blocking error.
+      }
+    }
+    if (appliedCount > 0) {
+      try {
+        const refreshed = await api.get<{ task: Task }>(`${base}/tasks/${taskId}`);
+        setTasks((prev) => prev.map((t) => (t.id === taskId ? refreshed.task : t)));
+      } catch {
+        // Non-fatal — the labels were still attached server-side even if
+        // this immediate UI refresh failed; the next full load()/socket
+        // update will reflect them.
+      }
+    }
+    return appliedCount;
   }
 
   async function handleAddColumn() {
@@ -1539,10 +1584,22 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
 
       {createTaskColumnId && workspaceId && projectId && (
         <CreateTaskModal
+          templates={taskTemplates}
+          projectLabels={projectLabels}
           onClose={() => setCreateTaskColumnId(null)}
           onCreate={async (input) => {
-            const created = await handleCreateTask(createTaskColumnId, input);
+            // Defense in depth: createTaskSchema is `.strict()` server-side
+            // and would 422 on an unrecognized `labelIds`/`templateName` key
+            // if either ever leaked through — handleCreateTask's own body-
+            // construction code is untouched, this destructuring just keeps
+            // both out entirely.
+            const { labelIds = [], templateName, ...taskInput } = input;
+            const created = await handleCreateTask(createTaskColumnId, taskInput);
             if (created) {
+              const appliedCount = await applyTemplateLabels(created.id, labelIds);
+              if (appliedCount > 0 && templateName) {
+                showToast(`Task created from "${templateName}" — ${appliedCount} label(s) applied.`);
+              }
               setCreateTaskColumnId(null);
               // Continue the flow into the full task editor so the user can
               // immediately add assignees/labels/etc. — the creation modal

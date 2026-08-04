@@ -7,6 +7,7 @@ import NotificationBell from "../components/NotificationBell.js";
 import ThemeToggle from "../components/ThemeToggle.js";
 import SettingsGearLink from "../components/SettingsGearLink.js";
 import ProjectCustomFieldsPanel from "./ProjectCustomFieldsPanel.js";
+import ProjectTaskTemplatesPanel from "./ProjectTaskTemplatesPanel.js";
 import type { CurrentUser } from "../App.js";
 
 interface Project {
@@ -36,6 +37,22 @@ const CAN_DELETE_PROJECT_ROLES = new Set(["OWNER", "ADMIN"]);
 // though the default role grants happen to coincide (same convention as
 // KanbanBoardPage.tsx's CAN_MANAGE_BOARD_ROLES/CAN_MANAGE_CATEGORY_ROLES).
 const CAN_MANAGE_CUSTOM_FIELDS_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
+
+// Mirrors `task_template.manage`'s grant — same role set as
+// CAN_MANAGE_CUSTOM_FIELDS_ROLES above, kept as its own named constant since
+// the two permissions are independent server-side even though the default
+// role grants happen to coincide (same convention as this file's own
+// CAN_MANAGE_CUSTOM_FIELDS_ROLES comment).
+const CAN_MANAGE_TASK_TEMPLATES_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
+
+// "Duplicate project" is gated by an in-handler AND-of-five-existing-
+// permissions server-side (project.create + category.manage + board.manage
+// + label.manage + custom_field.manage — see
+// apps/api/src/projects/projects.routes.ts), not one new permission key.
+// Under today's DEFAULT_ROLE_PERMISSIONS this union is held only by
+// OWNER/ADMIN/PROJECT_MANAGER (same set as project.create alone) — this
+// constant is a UX affordance only, the real boundary is server-side.
+const CAN_DUPLICATE_PROJECT_ROLES = new Set(["OWNER", "ADMIN", "PROJECT_MANAGER"]);
 
 function toDateInputValue(value: string | null): string {
   if (!value) return "";
@@ -67,6 +84,25 @@ export default function ProjectSettingsPage({ user }: { user: CurrentUser }) {
   const [confirmName, setConfirmName] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Duplicate project: a stateless one-shot copy, not a persisted template —
+  // see projects.duplicate.service.ts. `duplicateResult` holds the API's
+  // returned counts/new-project-id once the copy succeeds; there is no
+  // partial-failure state to represent (the backend compensating-deletes the
+  // whole partial new project on any error), so failure just re-shows the
+  // still-expanded form with an error, values preserved for retry.
+  const [duplicating, setDuplicating] = useState(false);
+  const [duplicateName, setDuplicateName] = useState("");
+  const [duplicateBusy, setDuplicateBusy] = useState(false);
+  const [duplicateError, setDuplicateError] = useState<string | null>(null);
+  const [duplicateResult, setDuplicateResult] = useState<{
+    projectId: string;
+    name: string;
+    categories: number;
+    columns: number;
+    labels: number;
+    customFields: number;
+  } | null>(null);
 
   async function load() {
     if (!workspaceId || !projectId) return;
@@ -101,6 +137,8 @@ export default function ProjectSettingsPage({ user }: { user: CurrentUser }) {
   const canEdit = role !== null && CAN_EDIT_PROJECT_ROLES.has(role);
   const canDelete = role !== null && CAN_DELETE_PROJECT_ROLES.has(role);
   const canManageCustomFields = role !== null && CAN_MANAGE_CUSTOM_FIELDS_ROLES.has(role);
+  const canManageTaskTemplates = role !== null && CAN_MANAGE_TASK_TEMPLATES_ROLES.has(role);
+  const canDuplicateProject = role !== null && CAN_DUPLICATE_PROJECT_ROLES.has(role);
 
   async function handleSave(e: FormEvent) {
     e.preventDefault();
@@ -145,6 +183,46 @@ export default function ProjectSettingsPage({ user }: { user: CurrentUser }) {
       );
     } finally {
       setArchiveBusy(false);
+    }
+  }
+
+  function openDuplicateForm() {
+    if (!project) return;
+    setDuplicateName(`${project.name} (copy)`);
+    setDuplicateError(null);
+    setDuplicateResult(null);
+    setDuplicating(true);
+  }
+
+  function cancelDuplicateForm() {
+    setDuplicating(false);
+    setDuplicateError(null);
+  }
+
+  async function handleDuplicate(e: FormEvent) {
+    e.preventDefault();
+    if (!workspaceId || !projectId || !duplicateName.trim()) return;
+    setDuplicateError(null);
+    setDuplicateBusy(true);
+    try {
+      const res = await api.post<{
+        project: { id: string; name: string };
+        copied: { categories: number; columns: number; labels: number; customFields: number };
+      }>(`/api/workspaces/${workspaceId}/projects/${projectId}/duplicate`, {
+        name: duplicateName.trim(),
+      });
+      setDuplicateResult({
+        projectId: res.project.id,
+        name: res.project.name,
+        categories: res.copied.categories,
+        columns: res.copied.columns,
+        labels: res.copied.labels,
+        customFields: res.copied.customFields,
+      });
+    } catch (err) {
+      setDuplicateError(err instanceof ApiError ? err.message : "Could not duplicate this project. Please try again.");
+    } finally {
+      setDuplicateBusy(false);
     }
   }
 
@@ -197,7 +275,7 @@ export default function ProjectSettingsPage({ user }: { user: CurrentUser }) {
 
         {!loadError && project === null ? (
           <p>Loading...</p>
-        ) : !loadError && !canEdit && !canDelete && !canManageCustomFields ? (
+        ) : !loadError && !canEdit && !canDelete && !canManageCustomFields && !canManageTaskTemplates && !canDuplicateProject ? (
           <div className="ph-empty-state">You don't have access to manage this project's settings.</div>
         ) : (
           !loadError &&
@@ -294,6 +372,99 @@ export default function ProjectSettingsPage({ user }: { user: CurrentUser }) {
                     {archiveBusy ? "Working..." : project.archived ? "Unarchive project" : "Archive project"}
                   </button>
                 </div>
+              )}
+
+              {canDuplicateProject && (
+                <div className="ph-card ph-card-wide" style={{ marginTop: "1.5rem" }}>
+                  <h1 style={{ fontSize: "1rem" }}>Duplicate project</h1>
+                  {!duplicating && !duplicateResult && (
+                    <>
+                      <p className="ph-subtitle" style={{ margin: "0 0 0.75rem" }}>
+                        Create a new project with the same categories, boards, columns, labels, and custom fields
+                        as this one. Tasks are never copied — the new project starts with an empty board in every
+                        category.
+                      </p>
+                      <button
+                        type="button"
+                        className="ph-button ph-button-secondary"
+                        style={{ width: "auto" }}
+                        onClick={openDuplicateForm}
+                      >
+                        Duplicate this project
+                      </button>
+                    </>
+                  )}
+
+                  {duplicating && !duplicateResult && (
+                    <form onSubmit={handleDuplicate}>
+                      {duplicateError && <div className="ph-alert ph-alert-error">{duplicateError}</div>}
+                      <div className="ph-field">
+                        <label htmlFor="duplicateProjectName">New project name</label>
+                        <input
+                          id="duplicateProjectName"
+                          value={duplicateName}
+                          onChange={(e) => setDuplicateName(e.target.value)}
+                          required
+                          autoFocus
+                          disabled={duplicateBusy}
+                        />
+                      </div>
+                      <p className="ph-subtitle" style={{ margin: "0 0 0.75rem", fontSize: "0.8rem" }}>
+                        The new project is created in this same workspace and always starts unarchived, in the
+                        default status, with no tasks.
+                      </p>
+                      {duplicateBusy ? (
+                        <p style={{ fontSize: "0.85rem", color: "var(--ph-muted)" }}>
+                          Duplicating "{duplicateName.trim()}"… This copies categories, boards, columns, labels,
+                          and custom fields — it may take a few seconds for larger projects.
+                        </p>
+                      ) : (
+                        <div style={{ display: "flex", gap: "0.6rem" }}>
+                          <button
+                            type="submit"
+                            className="ph-button"
+                            style={{ width: "auto" }}
+                            disabled={!duplicateName.trim()}
+                          >
+                            Duplicate project
+                          </button>
+                          <button
+                            type="button"
+                            className="ph-button ph-button-secondary"
+                            style={{ width: "auto" }}
+                            onClick={cancelDuplicateForm}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
+                    </form>
+                  )}
+
+                  {duplicateResult && (
+                    <div className="ph-alert ph-alert-success">
+                      <div>
+                        "{duplicateResult.name}" created — {duplicateResult.categories} categories,{" "}
+                        {duplicateResult.columns} columns, {duplicateResult.labels} labels,{" "}
+                        {duplicateResult.customFields} custom fields duplicated. 0 tasks copied.
+                      </div>
+                      <button
+                        type="button"
+                        className="ph-button"
+                        style={{ width: "auto", marginTop: "0.6rem" }}
+                        onClick={() =>
+                          navigate(`/workspace/${workspaceId}/projects/${duplicateResult.projectId}/categories`)
+                        }
+                      >
+                        Go to "{duplicateResult.name}"
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {canManageTaskTemplates && workspaceId && projectId && (
+                <ProjectTaskTemplatesPanel workspaceId={workspaceId} projectId={projectId} />
               )}
 
               {canManageCustomFields && workspaceId && projectId && (

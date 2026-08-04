@@ -40,6 +40,9 @@ export const PERMISSIONS = [
 
   // Custom fields on tasks (project-scoped typed field definitions)
   "custom_field.manage",
+
+  // Task templates (project-scoped canned task blueprints)
+  "task_template.manage",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

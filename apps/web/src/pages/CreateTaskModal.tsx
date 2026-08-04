@@ -1,8 +1,14 @@
 import { useState } from "react";
 import { IconX } from "../components/Icons.js";
-import type { Task } from "./task-types.js";
+import type { Task, TaskTemplate } from "./task-types.js";
 
 const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
+
+interface ProjectLabel {
+  id: string;
+  name: string;
+  color: string;
+}
 
 export interface CreateTaskInput {
   title: string;
@@ -10,6 +16,11 @@ export interface CreateTaskInput {
   priority?: Task["priority"];
   startDate?: string | null;
   dueDate?: string | null;
+  labelIds?: string[];
+  // Client-side-only metadata (never sent to the server — see
+  // KanbanBoardPage.tsx's `labelIds`/`taskInput` destructuring), used only to
+  // name the source template in the post-creation "labels applied" toast.
+  templateName?: string;
 }
 
 /**
@@ -20,11 +31,23 @@ export interface CreateTaskInput {
  * milestone, subtasks and dependencies are all set via separate endpoints
  * after creation, so this modal hands off to `TaskDetailModal` immediately
  * on success instead of trying to collect them upfront.
+ *
+ * "Start from a template" (optional) is a purely client-side prefill: no
+ * `templateId` is ever sent to the server (createTaskSchema stays exactly as
+ * it was). Picking a template just sets local title/description/priority
+ * state, and tracks the template's `defaultLabelIds` in `labelIds` on the
+ * `onCreate` payload — the parent (KanbanBoardPage.tsx) is responsible for
+ * actually attaching those labels after the task is created, via the
+ * existing per-label attach endpoint.
  */
 export default function CreateTaskModal({
+  templates = [],
+  projectLabels = [],
   onClose,
   onCreate,
 }: {
+  templates?: TaskTemplate[];
+  projectLabels?: ProjectLabel[];
   onClose: () => void;
   onCreate: (input: CreateTaskInput) => Promise<Task | null>;
 }) {
@@ -33,10 +56,27 @@ export default function CreateTaskModal({
   const [priority, setPriority] = useState<Task["priority"]>("medium");
   const [startDate, setStartDate] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [templateLabelIds, setTemplateLabelIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
   const canSubmit = title.trim().length > 0 && !creating;
+
+  function handleSelectTemplate(templateId: string) {
+    setSelectedTemplateId(templateId);
+    if (!templateId) {
+      // Re-selecting "Blank task" is a no-op: it never clears fields the
+      // user has already edited.
+      return;
+    }
+    const template = templates.find((t) => t.id === templateId);
+    if (!template) return;
+    setTitle(template.titleTemplate);
+    setDescription(template.description ?? "");
+    setPriority(template.priority ?? "medium");
+    setTemplateLabelIds(template.defaultLabelIds);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -44,12 +84,15 @@ export default function CreateTaskModal({
     setCreating(true);
     setError(null);
     try {
+      const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
       const created = await onCreate({
         title: title.trim(),
         description: description.trim() || undefined,
         priority,
         startDate: startDate ? new Date(startDate).toISOString() : null,
         dueDate: dueDate ? new Date(dueDate).toISOString() : null,
+        ...(templateLabelIds.length > 0 ? { labelIds: templateLabelIds } : {}),
+        ...(selectedTemplate ? { templateName: selectedTemplate.name } : {}),
       });
       if (!created) {
         // The parent's create call already surfaced a toast on failure;
@@ -77,6 +120,36 @@ export default function CreateTaskModal({
         {error && <div className="ph-alert ph-alert-error">{error}</div>}
 
         <form onSubmit={handleSubmit}>
+          {templates.length > 0 && (
+            <div className="ph-field">
+              <label>Start from a template (optional)</label>
+              <select value={selectedTemplateId} onChange={(e) => handleSelectTemplate(e.target.value)}>
+                <option value="">Blank task</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              {templateLabelIds.length > 0 && (
+                <div style={{ marginTop: "0.4rem" }}>
+                  <span style={{ fontSize: "0.78rem", color: "var(--ph-muted)" }}>Labels applied automatically:</span>
+                  <div className="ph-task-card-meta" style={{ marginTop: "0.25rem" }}>
+                    {templateLabelIds.map((labelId) => {
+                      const label = projectLabels.find((l) => l.id === labelId);
+                      if (!label) return null;
+                      return (
+                        <span key={labelId} className="ph-label-chip" style={{ background: label.color }}>
+                          {label.name}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="ph-field">
             <label>Title</label>
             <input

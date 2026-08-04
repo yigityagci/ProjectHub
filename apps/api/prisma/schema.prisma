@@ -255,6 +255,7 @@ model Workspace {
   taskDependencies    TaskDependency[]
   customFieldDefinitions CustomFieldDefinition[]
   customFieldValues      CustomFieldValue[]
+  taskTemplates          TaskTemplate[]
 
   comments       Comment[]
   mentions       Mention[]
@@ -413,6 +414,7 @@ model Project {
   dependencies   TaskDependency[]
   activityEvents ActivityEvent[]
   customFields   CustomFieldDefinition[]
+  taskTemplates  TaskTemplate[]
 
   @@index([workspaceId])
   @@index([ownerId])
@@ -706,6 +708,45 @@ model CustomFieldValue {
   @@index([workspaceId])
   @@index([fieldId])
   @@map("custom_field_values")
+}
+
+// A project-scoped, canned task blueprint: a name plus the title/description/
+// priority/labels a new task should start with. Shape mirrors Label/
+// CustomFieldDefinition (the other project-scoped, permission-gated
+// definition entities), but deliberately has NO `position` field and no
+// reorder endpoint — templates are consumed via a dropdown in the
+// task-creation quick-action, not a positioned/reorderable list (unlike
+// BoardColumn/CustomFieldDefinition), so creation-order (`createdAt asc`) is
+// sufficient, mirroring Label's own lack of a position field for the same
+// reason.
+//
+// `defaultLabelIds` is a native Postgres `String[]`, not a `Json` column:
+// unlike CustomFieldDefinition.options (whose legal shape depends on the
+// sibling `type` column), this field is unconditionally a flat list of
+// strings, so no Prisma.JsonValue-narrowing helper is needed. It is a soft
+// reference list, not FK-enforced: referential integrity is checked at WRITE
+// time only (every id must resolve to a Label in this project — see
+// task-templates.service.ts#assertLabelIdsInProject, the same IDOR-barrier
+// pattern as tasks.service.ts#addLabel's label lookup and
+// custom-fields.service.ts#setTaskCustomFieldValue's field lookup). A label
+// deleted later simply drops out of the applied set with no cleanup needed.
+model TaskTemplate {
+  id              String        @id @default(uuid())
+  workspaceId     String
+  workspace       Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId       String
+  project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name            String
+  titleTemplate   String
+  description     String?
+  priority        TaskPriority?
+  defaultLabelIds String[]      @default([])
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([projectId, name])
+  @@index([workspaceId])
+  @@map("task_templates")
 }
 
 model Milestone {
