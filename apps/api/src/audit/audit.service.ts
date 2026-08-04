@@ -36,6 +36,8 @@ export type AuditAction =
   | "email_change.failed"
   | "password_change.completed"
   | "password_change.failed"
+  | "account_deletion.completed"
+  | "account_deletion.failed"
   | "registration_token.generated"
   | "registration_token.revoked"
   | "user.registered"

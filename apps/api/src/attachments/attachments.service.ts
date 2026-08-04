@@ -6,6 +6,8 @@ import { NotFoundError, ForbiddenError, ValidationError } from "../core/errors.j
 import { isElevatedRole } from "../rbac/authorize.js";
 import { storageProvider } from "../storage/local-disk-provider.js";
 import { emitToCategory } from "../realtime/realtime.js";
+import { isDeletedUser } from "../users/user-serialization.js";
+import type { UserStatus } from "@prisma/client";
 
 const ATTACHMENT_NOT_FOUND_MESSAGE = "This attachment doesn't exist on this task.";
 
@@ -13,7 +15,7 @@ function serializeAttachment(attachment: {
   id: string;
   taskId: string;
   uploaderId: string;
-  uploader: { id: string; displayName: string; email: string };
+  uploader: { id: string; displayName: string; email: string; status: UserStatus };
   filename: string;
   contentType: string;
   sizeBytes: number;
@@ -25,6 +27,7 @@ function serializeAttachment(attachment: {
     uploaderId: attachment.uploaderId,
     uploaderDisplayName: attachment.uploader.displayName,
     uploaderEmail: attachment.uploader.email,
+    uploaderIsDeleted: isDeletedUser(attachment.uploader),
     filename: attachment.filename,
     contentType: attachment.contentType,
     sizeBytes: attachment.sizeBytes,

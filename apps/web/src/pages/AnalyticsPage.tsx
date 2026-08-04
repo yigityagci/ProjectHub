@@ -7,6 +7,7 @@ import ThemeToggle from "../components/ThemeToggle.js";
 import SettingsGearLink from "../components/SettingsGearLink.js";
 import type { CurrentUser } from "../App.js";
 import type { ActivityEvent } from "../components/ActivityFeed.js";
+import { formatUserName } from "../lib/user-display.js";
 
 interface AnalyticsTotals {
   totalTasks: number;
@@ -26,7 +27,7 @@ interface HealthStatus {
 interface Analytics {
   totals: AnalyticsTotals;
   completedOverTime: Array<{ day: string; count: number }>;
-  workloadByAssignee: Array<{ userId: string; displayName: string; openTaskCount: number }>;
+  workloadByAssignee: Array<{ userId: string; displayName: string; isDeleted: boolean; openTaskCount: number }>;
   tasksByStatus: Array<{ columnId: string; columnName: string; category: string; count: number }>;
   tasksByPriority: Record<string, number>;
   averageCompletionTimeHours: number | null;
@@ -197,7 +198,12 @@ export default function AnalyticsPage({ user }: { user: CurrentUser }) {
                 <div className="ph-empty-state">No open tasks are assigned to anyone yet.</div>
               ) : (
                 analytics.workloadByAssignee.map((w) => (
-                  <BarRow key={w.userId} label={w.displayName} value={w.openTaskCount} max={maxWorkload} />
+                  <BarRow
+                    key={w.userId}
+                    label={formatUserName(w.displayName, w.isDeleted)}
+                    value={w.openTaskCount}
+                    max={maxWorkload}
+                  />
                 ))
               )}
             </div>

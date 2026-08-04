@@ -1,8 +1,9 @@
-import type { Prisma, ActivityEvent } from "@prisma/client";
+import type { Prisma, ActivityEvent, UserStatus } from "@prisma/client";
 import type { ActivityEventType, RoleKey } from "@projecthub/shared";
 import { prisma } from "../core/prisma.js";
 import { emitToProject, emitToCategory } from "../realtime/realtime.js";
 import { listVisibleCategoryIdsForUser } from "../projects/categories.service.js";
+import { isDeletedUser } from "../users/user-serialization.js";
 
 type PrismaOrTx = typeof prisma | Prisma.TransactionClient;
 
@@ -29,12 +30,22 @@ export interface RecordActivityEventInput {
   payload: Record<string, unknown>;
 }
 
-export function serializeActivityEvent(event: ActivityEvent) {
+/**
+ * `actor` is optional: `broadcastActivityEvent` calls this right after a
+ * plain `activityEvent.create` (no actor loaded — the freshly-persisted row
+ * has no relations attached), while `listActivityEvents` below loads the
+ * real actor FK (`{ actor: { select: { status: true } } }`) so `actorIsDeleted`
+ * reflects live account status rather than the frozen `payload.actorDisplayName`
+ * JSON snapshot, which is never re-resolved (see the module doc comment on
+ * ActivityEvent in schema.prisma for why the payload is frozen at write time).
+ */
+export function serializeActivityEvent(event: ActivityEvent & { actor?: { status: UserStatus } | null }) {
   return {
     id: event.id,
     projectId: event.projectId,
     categoryId: event.categoryId,
     actorId: event.actorId,
+    actorIsDeleted: event.actor ? isDeletedUser(event.actor) : false,
     type: event.type,
     payload: event.payload,
     createdAt: event.createdAt,
@@ -124,6 +135,7 @@ export async function listActivityEvents(
         ? { OR: [{ categoryId: null }, { categoryId: { in: categoryFilter } }] }
         : {}),
     },
+    include: { actor: { select: { status: true } } },
     orderBy: { createdAt: "desc" },
     take: opts.limit + 1,
     ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),

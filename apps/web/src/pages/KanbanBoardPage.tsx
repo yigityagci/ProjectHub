@@ -33,6 +33,7 @@ import SettingsGearLink from "../components/SettingsGearLink.js";
 import ActivityFeed from "../components/ActivityFeed.js";
 import { IconGrip, IconPencil, IconPlus, IconTrash } from "../components/Icons.js";
 import { getStoredDefaultBoardView } from "../lib/personalization.js";
+import { formatUserName } from "../lib/user-display.js";
 import TaskDetailModal from "./TaskDetailModal.js";
 import CreateTaskModal from "./CreateTaskModal.js";
 import BulkActionBar from "./BulkActionBar.js";
@@ -204,7 +205,7 @@ function TaskCard({
             ))}
             {task.assignees.length > 0 && (
               <span style={{ fontSize: "0.72rem", color: "var(--ph-muted)" }}>
-                {task.assignees.map((a) => a.displayName).join(", ")}
+                {task.assignees.map((a) => formatUserName(a.displayName, a.isDeleted)).join(", ")}
               </span>
             )}
           </div>
@@ -447,7 +448,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
   const assigneeOptions = useMemo(() => {
     const map = new Map<string, string>();
     for (const t of tasks) {
-      for (const a of t.assignees) map.set(a.userId, a.displayName);
+      for (const a of t.assignees) map.set(a.userId, formatUserName(a.displayName, a.isDeleted));
     }
     return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
   }, [tasks]);
@@ -499,7 +500,8 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
   const sortedListTasks = useMemo(() => {
     const dir = listSortDir === "asc" ? 1 : -1;
     const columnName = (t: Task) => columns?.find((c) => c.id === t.columnId)?.name ?? "";
-    const firstAssignee = (t: Task) => t.assignees[0]?.displayName ?? "";
+    const firstAssignee = (t: Task) =>
+      t.assignees[0] ? formatUserName(t.assignees[0].displayName, t.assignees[0].isDeleted) : "";
     const firstLabel = (t: Task) => t.labels[0]?.name ?? "";
 
     // Ascending-oriented comparator for keys where "value present" is
@@ -1715,7 +1717,7 @@ function ListView({
                   </td>
                   <td>
                     {task.assignees.length > 0
-                      ? task.assignees.map((a) => a.displayName).join(", ")
+                      ? task.assignees.map((a) => formatUserName(a.displayName, a.isDeleted)).join(", ")
                       : "—"}
                   </td>
                   <td>

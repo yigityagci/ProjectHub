@@ -84,3 +84,14 @@ export const changePasswordSchema = z
   })
   .strict();
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
+// Self-service account deletion (soft-delete — see account.service.ts#deleteAccount).
+// Re-authentication mirrors changeEmailSchema/changePasswordSchema exactly:
+// not passwordSchema, since an existing password may predate the current
+// policy.
+export const deleteAccountSchema = z
+  .object({
+    currentPassword: z.string().min(1),
+  })
+  .strict();
+export type DeleteAccountInput = z.infer<typeof deleteAccountSchema>;

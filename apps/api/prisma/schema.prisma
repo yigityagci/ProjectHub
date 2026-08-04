@@ -17,6 +17,13 @@ datasource db {
 enum UserStatus {
   active
   disabled
+  // Soft-delete marker for self-service account deletion (see
+  // auth/account.service.ts#deleteAccount). Deliberately reuses the three
+  // existing `status !== "active"` gates that already block session
+  // resolution (session.ts#resolveSession), login (auth.routes.ts), and
+  // password-reset issuance (password-reset.service.ts) — a deleted
+  // account gets those "for free" without new conditionals at each site.
+  deleted
 }
 
 enum RoleKey {
@@ -118,6 +125,11 @@ model User {
   avatarUrl       String?
   isPlatformAdmin Boolean    @default(false)
   status          UserStatus @default(active)
+  // Informational-only "when did this happen" timestamp for account
+  // deletion — `status` above is the actual source of truth for "is this
+  // account deleted" (see users/user-serialization.ts#isDeletedUser). Not
+  // used for any gating logic, purely support/audit context.
+  deletedAt       DateTime?
   // Settings page preferences (see docs/PHASES.md). Scalar columns rather
   // than a JSON blob, deliberately: the notification-preference set is
   // closed and already double-enumerated (NOTIFICATION_TYPES in

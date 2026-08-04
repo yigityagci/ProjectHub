@@ -1,18 +1,26 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api.js";
 import { getSocket } from "../lib/socket.js";
+import { formatUserName } from "../lib/user-display.js";
 
 export interface ActivityEvent {
   id: string;
   projectId: string;
   actorId: string;
+  actorIsDeleted: boolean;
   type: "task_created" | "task_moved" | "task_assigned" | "comment_added" | "milestone_completed";
   payload: Record<string, unknown>;
   createdAt: string;
 }
 
 function describeActivityEvent(e: ActivityEvent): string {
-  const actor = (e.payload.actorDisplayName as string | undefined) ?? "Someone";
+  // `payload.actorDisplayName` is a frozen JSON snapshot (see
+  // ActivityEvent.payload in schema.prisma), never re-resolved — the
+  // "(deleted account)" suffix is applied here from the live `actorIsDeleted`
+  // flag (driven by the real actorId FK, see activity.service.ts), not from
+  // anything inside the payload itself.
+  const rawActor = (e.payload.actorDisplayName as string | undefined) ?? "Someone";
+  const actor = formatUserName(rawActor, e.actorIsDeleted);
   switch (e.type) {
     case "task_created":
       return `${actor} created task "${e.payload.taskTitle ?? ""}"`;

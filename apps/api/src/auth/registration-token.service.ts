@@ -4,6 +4,7 @@ import type { RoleKey } from "@projecthub/shared";
 import { prisma } from "../core/prisma.js";
 import { env } from "../config/env.js";
 import { ConflictError, NotFoundError, ValidationError } from "../core/errors.js";
+import { isDeletedUser } from "../users/user-serialization.js";
 
 /**
  * Single generic message for every token-failure mode (missing, expired,
@@ -89,10 +90,12 @@ export async function listRegistrationTokens(workspaceId: string) {
     createdAt: t.createdAt,
     createdByEmail: t.createdBy.email,
     createdByDisplayName: t.createdBy.displayName,
+    createdByIsDeleted: isDeletedUser(t.createdBy),
     expiresAt: t.expiresAt,
     usedAt: t.usedAt,
     usedByEmail: t.usedBy?.email ?? null,
     usedByDisplayName: t.usedBy?.displayName ?? null,
+    usedByIsDeleted: t.usedBy ? isDeletedUser(t.usedBy) : false,
     revokedAt: t.revokedAt,
   }));
 }

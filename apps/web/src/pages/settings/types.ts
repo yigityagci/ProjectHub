@@ -4,10 +4,12 @@ import type { UserSettings } from "../../lib/user-settings.js";
 export type { UserSettings };
 
 /**
- * Uniform prop contract for every Settings tab. `onLoggedOut` is only
- * consumed by SessionsTab (revoking your own current session must behave
- * like a manual logout), but it's kept in the shared contract rather than a
- * one-off prop so every tab component has an identical signature.
+ * Uniform prop contract for every Settings tab. `onLoggedOut` is consumed by
+ * SessionsTab (revoking your own current session must behave like a manual
+ * logout) and by AccountTab (self-service account deletion — see
+ * apps/api/src/auth/account.service.ts#deleteAccount — also ends in an
+ * immediate forced logout), but it's kept in the shared contract rather than
+ * a one-off prop so every tab component has an identical signature.
  */
 export interface SettingsTabProps {
   user: CurrentUser;

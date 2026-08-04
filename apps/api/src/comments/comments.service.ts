@@ -1,3 +1,4 @@
+import type { UserStatus } from "@prisma/client";
 import type { CreateCommentInput } from "@projecthub/shared";
 import { MENTION_TOKEN_PATTERN } from "@projecthub/shared";
 import { prisma } from "../core/prisma.js";
@@ -7,29 +8,58 @@ import type { RoleKey } from "@projecthub/shared";
 import { emitToCategory } from "../realtime/realtime.js";
 import { createNotification } from "../notifications/notifications.service.js";
 import { createActivityEvent, broadcastActivityEvent } from "../activity/activity.service.js";
+import { isDeletedUser } from "../users/user-serialization.js";
 
 const COMMENT_NOT_FOUND_MESSAGE = "This comment doesn't exist on this task.";
 
-function serializeComment(comment: {
+/**
+ * Shared `include` shape used at every comment.findMany/create/
+ * findUniqueOrThrow call site in this file, so they can't drift out of sync
+ * with serializeComment's expected shape (in particular the author/mention
+ * `status` columns needed for the "(deleted account)" suffix).
+ */
+const COMMENT_INCLUDE = {
+  author: true,
+  mentions: {
+    include: {
+      mentionedUser: {
+        select: { id: true, displayName: true, status: true },
+      },
+    },
+  },
+} as const;
+
+type CommentWithRelations = {
   id: string;
   taskId: string;
   authorId: string;
-  author: { id: string; displayName: string; email: string };
+  author: { id: string; displayName: string; email: string; status: UserStatus };
   body: string;
   createdAt: Date;
   updatedAt: Date;
-  mentions: { mentionedUserId: string }[];
-}) {
+  mentions: {
+    mentionedUserId: string;
+    mentionedUser: { id: string; displayName: string; status: UserStatus };
+  }[];
+};
+
+function serializeComment(comment: CommentWithRelations) {
   return {
     id: comment.id,
     taskId: comment.taskId,
     authorId: comment.authorId,
     authorDisplayName: comment.author.displayName,
     authorEmail: comment.author.email,
+    authorIsDeleted: isDeletedUser(comment.author),
     body: comment.body,
     createdAt: comment.createdAt,
     updatedAt: comment.updatedAt,
     mentionedUserIds: comment.mentions.map((m) => m.mentionedUserId),
+    mentions: comment.mentions.map((m) => ({
+      userId: m.mentionedUser.id,
+      displayName: m.mentionedUser.displayName,
+      isDeleted: isDeletedUser(m.mentionedUser),
+    })),
   };
 }
 
@@ -40,7 +70,7 @@ export async function listComments(workspaceId: string, categoryId: string, task
   }
   const comments = await prisma.comment.findMany({
     where: { taskId, workspaceId },
-    include: { author: true, mentions: true },
+    include: COMMENT_INCLUDE,
     orderBy: { createdAt: "asc" },
   });
   return comments.map(serializeComment);
@@ -93,7 +123,7 @@ export async function createComment(params: CreateCommentParams) {
   const { comment, activityEvent } = await prisma.$transaction(async (tx) => {
     const created = await tx.comment.create({
       data: { workspaceId, taskId, authorId, body: input.body },
-      include: { author: true, mentions: true },
+      include: COMMENT_INCLUDE,
     });
     if (mentionedUserIds.length > 0) {
       await tx.mention.createMany({
@@ -117,7 +147,7 @@ export async function createComment(params: CreateCommentParams) {
 
   const withMentions = await prisma.comment.findUniqueOrThrow({
     where: { id: comment.id },
-    include: { author: true, mentions: true },
+    include: COMMENT_INCLUDE,
   });
   const serialized = serializeComment(withMentions);
 

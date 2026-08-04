@@ -3,6 +3,7 @@ import { prisma } from "../core/prisma.js";
 import { listActivityEvents } from "../activity/activity.service.js";
 import { listVisibleCategoryIdsForUser } from "../projects/categories.service.js";
 import { computeHealthStatus, type HealthStatusInput } from "./health-status.js";
+import { isDeletedUser } from "../users/user-serialization.js";
 
 const COMPLETED_OVER_TIME_WINDOW_DAYS = 30;
 const RECENT_ACTIVITY_LIMIT = 10;
@@ -78,12 +79,16 @@ export async function getProjectAnalytics(
   const completionPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
   // ---- Workload by assignee (open task count per assignee) ----
-  const workloadMap = new Map<string, { userId: string; displayName: string; openTaskCount: number }>();
+  const workloadMap = new Map<
+    string,
+    { userId: string; displayName: string; isDeleted: boolean; openTaskCount: number }
+  >();
   for (const t of openTasks) {
     for (const a of t.assignees) {
       const entry = workloadMap.get(a.userId) ?? {
         userId: a.userId,
         displayName: a.user.displayName,
+        isDeleted: isDeletedUser(a.user),
         openTaskCount: 0,
       };
       entry.openTaskCount += 1;

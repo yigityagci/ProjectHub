@@ -69,9 +69,14 @@ export async function createNotification(input: CreateNotificationInput): Promis
       notifyOnCommentReply: true,
       email: true,
       displayName: true,
+      status: true,
     },
   });
   if (!recipient) return null;
+  // A soft-deleted account (see account.service.ts#deleteAccount) must never
+  // receive a new notification going forward — there's no inbox left for
+  // them to read it in, and their membership rows are already gone.
+  if (recipient.status !== "active") return null;
 
   const prefField = NOTIFICATION_PREF_FIELD[input.type];
   if (!recipient[prefField]) return null;

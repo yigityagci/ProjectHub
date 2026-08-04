@@ -30,3 +30,13 @@ export function getDummyHash(): Promise<string> {
   }
   return dummyHashPromise;
 }
+
+/**
+ * Written to a soft-deleted account's passwordHash column (see
+ * account.service.ts#deleteAccount). Deliberately NOT a valid argon2 PHC
+ * string, so `argon2.verify` always throws on it and verifyPassword's
+ * try/catch above always returns false — no plaintext can ever match it.
+ * passwordHash stays NOT NULL, so this sentinel is required rather than a
+ * schema change.
+ */
+export const DELETED_ACCOUNT_PASSWORD_HASH = "$deleted$no-login$";

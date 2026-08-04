@@ -36,6 +36,8 @@ import { emitToCategory } from "../realtime/realtime.js";
 import { createNotification } from "../notifications/notifications.service.js";
 import { createActivityEvent, broadcastActivityEvent } from "../activity/activity.service.js";
 import { prisma } from "../core/prisma.js";
+import { isDeletedUser } from "../users/user-serialization.js";
+import type { UserStatus } from "@prisma/client";
 
 /**
  * Bulk actions are permission-checked per action-type inside the handler
@@ -75,7 +77,7 @@ interface TaskWithRelations {
   version: number;
   createdAt: Date;
   updatedAt: Date;
-  assignees: { userId: string; user: { id: string; displayName: string; email: string } }[];
+  assignees: { userId: string; user: { id: string; displayName: string; email: string; status: UserStatus } }[];
   labels: { labelId: string; label: { id: string; name: string; color: string } }[];
 }
 
@@ -102,6 +104,7 @@ function serializeTask(task: TaskWithRelations) {
       userId: a.userId,
       displayName: a.user.displayName,
       email: a.user.email,
+      isDeleted: isDeletedUser(a.user),
     })),
     labels: task.labels.map((l) => ({
       labelId: l.labelId,

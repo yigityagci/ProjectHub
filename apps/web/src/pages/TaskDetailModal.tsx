@@ -3,6 +3,7 @@ import type { CustomFieldType } from "@projecthub/shared";
 import { api, ApiError } from "../lib/api.js";
 import { getSocket } from "../lib/socket.js";
 import { renderCommentBody } from "../lib/mentions.js";
+import { formatUserName } from "../lib/user-display.js";
 import { IconX } from "../components/Icons.js";
 import type { Task, Comment, Attachment } from "./task-types.js";
 
@@ -991,7 +992,7 @@ export default function TaskDetailModal({
                 {task.assignees.length === 0 && <li style={{ border: "none" }}>No one assigned yet.</li>}
                 {task.assignees.map((a) => (
                   <li key={a.userId}>
-                    <span>{a.displayName}</span>
+                    <span>{formatUserName(a.displayName, a.isDeleted)}</span>
                     {canEdit && (
                       <button className="ph-remove-btn" onClick={() => handleToggleAssignee(a.userId, true)}>
                         Remove
@@ -1164,7 +1165,7 @@ export default function TaskDetailModal({
                     {a.filename}
                   </button>{" "}
                   <span style={{ fontSize: "0.75rem", color: "var(--ph-muted)" }}>
-                    ({formatBytes(a.sizeBytes)} — uploaded by {a.uploaderDisplayName})
+                    ({formatBytes(a.sizeBytes)} — uploaded by {formatUserName(a.uploaderDisplayName, a.uploaderIsDeleted)})
                   </span>
                 </span>
                 {(a.uploaderId === currentUserId || isElevated) && (
@@ -1196,10 +1197,10 @@ export default function TaskDetailModal({
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                  <strong style={{ fontSize: "0.85rem" }}>{c.authorDisplayName}</strong>
+                  <strong style={{ fontSize: "0.85rem" }}>{formatUserName(c.authorDisplayName, c.authorIsDeleted)}</strong>
                   <span style={{ fontSize: "0.72rem", color: "var(--ph-muted)" }}>{formatDateTime(c.createdAt)}</span>
                 </div>
-                <p style={{ margin: "0.25rem 0", whiteSpace: "pre-wrap" }}>{renderCommentBody(c.body, members)}</p>
+                <p style={{ margin: "0.25rem 0", whiteSpace: "pre-wrap" }}>{renderCommentBody(c.body, members, c.mentions)}</p>
                 {(c.authorId === currentUserId || isElevated) && (
                   <button className="ph-remove-btn" onClick={() => handleDeleteComment(c.id)}>
                     Delete

@@ -3,6 +3,7 @@ import { api, ApiError } from "../lib/api.js";
 import type { BulkTaskActionInput } from "../lib/api.js";
 import { IconX } from "../components/Icons.js";
 import type { Task } from "./task-types.js";
+import { formatUserName } from "../lib/user-display.js";
 
 type BulkTaskAction = BulkTaskActionInput["action"];
 
@@ -107,7 +108,7 @@ export default function BulkActionBar({
     const map = new Map<string, string>();
     for (const t of tasks) {
       if (!selectedTaskIds.has(t.id)) continue;
-      for (const a of t.assignees) map.set(a.userId, a.displayName);
+      for (const a of t.assignees) map.set(a.userId, formatUserName(a.displayName, a.isDeleted));
     }
     return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
   })();

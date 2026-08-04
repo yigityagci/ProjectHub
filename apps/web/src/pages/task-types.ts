@@ -2,6 +2,7 @@ export interface TaskAssignee {
   userId: string;
   displayName: string;
   email: string;
+  isDeleted: boolean;
 }
 
 export interface TaskLabelRef {
@@ -32,16 +33,24 @@ export interface Task {
   labels: TaskLabelRef[];
 }
 
+export interface CommentMention {
+  userId: string;
+  displayName: string;
+  isDeleted: boolean;
+}
+
 export interface Comment {
   id: string;
   taskId: string;
   authorId: string;
   authorDisplayName: string;
   authorEmail: string;
+  authorIsDeleted: boolean;
   body: string;
   createdAt: string;
   updatedAt: string;
   mentionedUserIds: string[];
+  mentions: CommentMention[];
 }
 
 export interface Attachment {
@@ -50,6 +59,7 @@ export interface Attachment {
   uploaderId: string;
   uploaderDisplayName: string;
   uploaderEmail: string;
+  uploaderIsDeleted: boolean;
   filename: string;
   contentType: string;
   sizeBytes: number;
