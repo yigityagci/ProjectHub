@@ -36,6 +36,12 @@ export function serializeUserSettings(user: User) {
       reduceMotion: user.prefersReducedMotion,
       largerText: user.prefersLargerText,
     },
+    personalization: {
+      defaultBoardView: user.defaultBoardView,
+      defaultLandingPage: user.defaultLandingPage,
+      compactMode: user.prefersCompactMode,
+      showKeyboardShortcutsReference: user.showKeyboardShortcutsReference,
+    },
   };
 }
 export type UserSettings = ReturnType<typeof serializeUserSettings>;
@@ -68,6 +74,18 @@ export async function updatePreferences(userId: string, input: UpdatePreferences
         : {}),
       ...(input.accessibility?.largerText !== undefined
         ? { prefersLargerText: input.accessibility.largerText }
+        : {}),
+      ...(input.personalization?.defaultBoardView !== undefined
+        ? { defaultBoardView: input.personalization.defaultBoardView }
+        : {}),
+      ...(input.personalization?.defaultLandingPage !== undefined
+        ? { defaultLandingPage: input.personalization.defaultLandingPage }
+        : {}),
+      ...(input.personalization?.compactMode !== undefined
+        ? { prefersCompactMode: input.personalization.compactMode }
+        : {}),
+      ...(input.personalization?.showKeyboardShortcutsReference !== undefined
+        ? { showKeyboardShortcutsReference: input.personalization.showKeyboardShortcutsReference }
         : {}),
     },
   });

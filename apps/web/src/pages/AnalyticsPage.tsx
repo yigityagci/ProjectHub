@@ -4,6 +4,7 @@ import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
 import NotificationBell from "../components/NotificationBell.js";
 import ThemeToggle from "../components/ThemeToggle.js";
+import SettingsGearLink from "../components/SettingsGearLink.js";
 import type { CurrentUser } from "../App.js";
 import type { ActivityEvent } from "../components/ActivityFeed.js";
 
@@ -117,6 +118,7 @@ export default function AnalyticsPage({ user }: { user: CurrentUser }) {
           <ThemeToggle />
           <NotificationBell />
           <span style={{ fontSize: "0.9rem" }}>{user.displayName}</span>
+          <SettingsGearLink />
         </div>
       </div>
 

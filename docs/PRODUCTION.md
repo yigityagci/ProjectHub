@@ -41,7 +41,7 @@ half-working instance.
 
 **Outbound email is no longer an environment variable.** It's configured at
 runtime, per-installation, by a platform administrator from Platform
-Settings > Email (`/platform-settings/email` in the web UI, backed by
+Settings > ProjectHub Administration (`/settings/projecthub-admin` in the web UI, backed by
 `GET/PATCH/DELETE /api/platform/email-config` and gated by
 `User.isPlatformAdmin`, see `apps/api/src/rbac/guards.ts#requirePlatformAdmin`).
 The SMTP password is encrypted at rest (AES-256-GCM, key derived from

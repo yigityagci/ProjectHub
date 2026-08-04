@@ -131,6 +131,16 @@ model User {
   locale                String   @default("en")
   prefersReducedMotion  Boolean  @default(false)
   prefersLargerText     Boolean  @default(false)
+  // Personalization tab (see docs/PHASES.md). Same scalar-column convention
+  // as the accessibility/locale columns above: a plain String with the
+  // allowed-value set enforced by a shared zod enum
+  // (BOARD_VIEWS/LANDING_PAGES in packages/shared), not a Prisma enum, so
+  // adding a third board view or landing page later is a tuple append, not
+  // a migration.
+  defaultBoardView              String  @default("board")
+  defaultLandingPage            String  @default("workspaces")
+  prefersCompactMode             Boolean @default(false)
+  showKeyboardShortcutsReference Boolean @default(true)
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 

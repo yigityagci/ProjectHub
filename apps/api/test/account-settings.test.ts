@@ -144,6 +144,54 @@ describe("Account settings: profile/email/password/preferences", () => {
     expect(notifications.length).toBe(0);
   });
 
+  it("GET /api/auth/me returns default personalization preferences for a freshly created user", async () => {
+    const client = await registerAndLogin(app, "personalization-defaults@example.com");
+    const res = await client.get("/api/auth/me");
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user.personalization).toEqual({
+      defaultBoardView: "board",
+      defaultLandingPage: "workspaces",
+      compactMode: false,
+      showKeyboardShortcutsReference: true,
+    });
+  });
+
+  it("PATCH /api/auth/me/preferences round-trips all 4 personalization fields", async () => {
+    const client = await registerAndLogin(app, "personalization-roundtrip@example.com");
+    const res = await client.patch("/api/auth/me/preferences", {
+      personalization: {
+        defaultBoardView: "calendar",
+        defaultLandingPage: "projects",
+        compactMode: true,
+        showKeyboardShortcutsReference: false,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user.personalization).toEqual({
+      defaultBoardView: "calendar",
+      defaultLandingPage: "projects",
+      compactMode: true,
+      showKeyboardShortcutsReference: false,
+    });
+
+    // Durable — a fresh GET still reflects the write.
+    const getRes = await client.get("/api/auth/me");
+    expect(getRes.json().user.personalization).toEqual({
+      defaultBoardView: "calendar",
+      defaultLandingPage: "projects",
+      compactMode: true,
+      showKeyboardShortcutsReference: false,
+    });
+  });
+
+  it("rejects an out-of-enum defaultBoardView on PATCH /api/auth/me/preferences", async () => {
+    const client = await registerAndLogin(app, "personalization-invalid-enum@example.com");
+    const res = await client.patch("/api/auth/me/preferences", {
+      personalization: { defaultBoardView: "kanban" },
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
   it("GET /api/auth/sessions returns exactly one row with current: true for a freshly logged-in single-session client", async () => {
     const client = await registerAndLogin(app, "single-session@example.com");
     const res = await client.get("/api/auth/sessions");

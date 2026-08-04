@@ -4,6 +4,7 @@ import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
 import NotificationBell from "../components/NotificationBell.js";
 import ThemeToggle from "../components/ThemeToggle.js";
+import SettingsGearLink from "../components/SettingsGearLink.js";
 import type { CurrentUser } from "../App.js";
 
 interface WorkspaceSummary {
@@ -69,16 +70,8 @@ export default function WorkspacesPage({
         <div className="ph-topbar-actions">
           <ThemeToggle />
           <NotificationBell />
-          {user.isPlatformAdmin && (
-            <Link
-              to="/platform-settings/email"
-              className="ph-button ph-button-secondary"
-              style={{ width: "auto", textDecoration: "none" }}
-            >
-              Email settings
-            </Link>
-          )}
           <span style={{ fontSize: "0.9rem" }}>{user.displayName}</span>
+          <SettingsGearLink />
           <button className="ph-button ph-button-secondary" style={{ width: "auto" }} onClick={handleLogout}>
             Log out
           </button>

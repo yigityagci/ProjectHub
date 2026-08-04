@@ -11,7 +11,12 @@ export type { UserSettings };
  */
 export interface SettingsTabProps {
   user: CurrentUser;
-  workspaceId: string;
+  // null on the workspace-agnostic /settings/:tab routes (Personalization,
+  // ProjectHub Administration, and every other non-workspace-scoped tab).
+  // Only ManageTeamTab actually dereferences this, and it's only ever
+  // rendered when a real workspaceId exists (see tabs.ts's
+  // requiresManageTeam gate), so no other tab needs to narrow this itself.
+  workspaceId: string | null;
   // Already fetched once by the SettingsPage shell (which also owns the
   // breadcrumb/topbar rendering it) — ManageTeamTab reuses these instead of
   // re-fetching GET /api/workspaces/:workspaceId itself.

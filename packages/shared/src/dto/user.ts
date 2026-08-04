@@ -58,6 +58,31 @@ export const accessibilityPreferencesPatchSchema = z
   .strict();
 export type AccessibilityPreferencesPatch = z.infer<typeof accessibilityPreferencesPatchSchema>;
 
+/**
+ * Personalization tab (see docs/PHASES.md). Ship with a small closed set of
+ * values per field, same convention as SUPPORTED_LOCALES above — adding a
+ * third board view or landing page later is a tuple append, not a
+ * migration.
+ */
+export const BOARD_VIEWS = ["board", "list", "calendar"] as const;
+export type BoardView = (typeof BOARD_VIEWS)[number];
+export const boardViewSchema = z.enum(BOARD_VIEWS);
+
+export const LANDING_PAGES = ["workspaces", "projects"] as const;
+export type LandingPage = (typeof LANDING_PAGES)[number];
+export const landingPageSchema = z.enum(LANDING_PAGES);
+
+export const personalizationPreferencesPatchSchema = z
+  .object({
+    defaultBoardView: boardViewSchema,
+    defaultLandingPage: landingPageSchema,
+    compactMode: z.boolean(),
+    showKeyboardShortcutsReference: z.boolean(),
+  })
+  .partial()
+  .strict();
+export type PersonalizationPreferencesPatch = z.infer<typeof personalizationPreferencesPatchSchema>;
+
 export const updateProfileSchema = z
   .object({
     displayName: displayNameSchema,
@@ -72,6 +97,7 @@ export const updatePreferencesSchema = z
     notifications: notificationPreferencesPatchSchema,
     locale: localeSchema,
     accessibility: accessibilityPreferencesPatchSchema,
+    personalization: personalizationPreferencesPatchSchema,
   })
   .partial()
   .strict();

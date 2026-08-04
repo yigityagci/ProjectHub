@@ -1654,6 +1654,29 @@ select:disabled {
   box-shadow: 0 0 0 3px var(--ph-focus-ring);
 }
 
+/* Personalization tab: "Task density" -> Compact mode. Applied via
+   document.documentElement[data-compact-mode="true"] (see
+   apps/web/src/lib/personalization.ts), same on/off attribute convention
+   as a11y.ts's data-reduce-motion/data-larger-text. Scoped, additive
+   tightening of the board card / list row spacing already defined above —
+   deliberately does not restructure either layout. */
+[data-compact-mode="true"] .ph-task-card {
+  padding: 0.4rem 0.55rem;
+}
+
+[data-compact-mode="true"] .ph-task-card-title {
+  margin-bottom: 0.2rem;
+}
+
+[data-compact-mode="true"] .ph-board-column-body {
+  gap: 0.35rem;
+}
+
+[data-compact-mode="true"] .ph-list-table th,
+[data-compact-mode="true"] .ph-list-table td {
+  padding: 0.35rem 0.65rem;
+}
+
 .ph-notification-dot {
   position: absolute;
   top: 4px;

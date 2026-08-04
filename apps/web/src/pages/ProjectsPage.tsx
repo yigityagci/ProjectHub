@@ -4,7 +4,9 @@ import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
 import NotificationBell from "../components/NotificationBell.js";
 import ThemeToggle from "../components/ThemeToggle.js";
+import SettingsGearLink from "../components/SettingsGearLink.js";
 import { canAccessManageTeam } from "../lib/workspace-role-gates.js";
+import { setStoredLastWorkspaceId, clearStoredLastWorkspaceId } from "../lib/personalization.js";
 import type { CurrentUser } from "../App.js";
 
 interface Project {
@@ -51,6 +53,11 @@ export default function ProjectsPage({ user }: { user: CurrentUser }) {
       );
       setWorkspaceName(ws.workspace.name);
       setRole(ws.role);
+      // Mirrors this workspace id down into localStorage so
+      // resolveLandingPath() (see lib/personalization.ts) can send a
+      // returning user straight back here on their next fresh page load,
+      // if that's their chosen default landing page.
+      setStoredLastWorkspaceId(workspaceId);
 
       const params = new URLSearchParams();
       if (debouncedQuery) params.set("q", debouncedQuery);
@@ -64,6 +71,9 @@ export default function ProjectsPage({ user }: { user: CurrentUser }) {
       setProjects(res.projects);
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
+        // Defense in depth: a deleted/inaccessible workspace should never
+        // be reused as a landing-redirect target.
+        clearStoredLastWorkspaceId();
         navigate("/");
         return;
       }
@@ -121,6 +131,7 @@ export default function ProjectsPage({ user }: { user: CurrentUser }) {
           <ThemeToggle />
           <NotificationBell />
           <span style={{ fontSize: "0.9rem" }}>{user.displayName}</span>
+          <SettingsGearLink />
         </div>
       </div>
 

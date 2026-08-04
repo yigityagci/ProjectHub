@@ -21,4 +21,10 @@ export interface UserSettings {
     reduceMotion: boolean;
     largerText: boolean;
   };
+  personalization: {
+    defaultBoardView: string;
+    defaultLandingPage: string;
+    compactMode: boolean;
+    showKeyboardShortcutsReference: boolean;
+  };
 }

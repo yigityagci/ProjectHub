@@ -29,8 +29,10 @@ import {
 } from "../lib/socket.js";
 import NotificationBell from "../components/NotificationBell.js";
 import ThemeToggle from "../components/ThemeToggle.js";
+import SettingsGearLink from "../components/SettingsGearLink.js";
 import ActivityFeed from "../components/ActivityFeed.js";
 import { IconGrip, IconPencil, IconPlus, IconTrash } from "../components/Icons.js";
+import { getStoredDefaultBoardView } from "../lib/personalization.js";
 import TaskDetailModal from "./TaskDetailModal.js";
 import CreateTaskModal from "./CreateTaskModal.js";
 import BulkActionBar from "./BulkActionBar.js";
@@ -229,7 +231,14 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
   const [toast, setToast] = useState<{ message: string; error?: boolean } | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [createTaskColumnId, setCreateTaskColumnId] = useState<string | null>(null);
-  const [view, setView] = useState<"board" | "activity" | "list" | "calendar">("board");
+  // Initial-value-only application of the Personalization tab's "default
+  // board view" preference (see lib/personalization.ts) — this does NOT
+  // keep the view in sync with the stored preference after mount; clicking
+  // Board/List/Calendar/Activity below still just navigates this same local
+  // state as before.
+  const [view, setView] = useState<"board" | "activity" | "list" | "calendar">(
+    () => getStoredDefaultBoardView() ?? "board",
+  );
 
   // List view (Alternate Board Views): sortable table over the exact same
   // `filteredTasks` the Board view's columns are built from — no separate
@@ -952,6 +961,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
           <ThemeToggle />
           <NotificationBell />
           <span style={{ fontSize: "0.9rem" }}>{user.displayName}</span>
+          <SettingsGearLink />
         </div>
       </div>
 

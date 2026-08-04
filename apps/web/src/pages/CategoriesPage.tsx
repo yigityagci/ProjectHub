@@ -4,6 +4,7 @@ import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
 import NotificationBell from "../components/NotificationBell.js";
 import ThemeToggle from "../components/ThemeToggle.js";
+import SettingsGearLink from "../components/SettingsGearLink.js";
 import { IconPlus } from "../components/Icons.js";
 import type { CurrentUser } from "../App.js";
 
@@ -296,6 +297,7 @@ export default function CategoriesPage({ user }: { user: CurrentUser }) {
           <ThemeToggle />
           <NotificationBell />
           <span style={{ fontSize: "0.9rem" }}>{user.displayName}</span>
+          <SettingsGearLink />
         </div>
       </div>
 

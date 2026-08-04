@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "./lib/api.js";
 import { getSocket, disconnectSocket } from "./lib/socket.js";
 import { applyPreferencesFromServer } from "./lib/a11y.js";
+import { applyPersonalizationFromServer, resolveLandingPath } from "./lib/personalization.js";
 import type { UserSettings } from "./lib/user-settings.js";
 import SetupPage from "./pages/SetupPage.js";
 import LoginPage from "./pages/LoginPage.js";
@@ -18,7 +19,6 @@ import KanbanBoardPage from "./pages/KanbanBoardPage.js";
 import AnalyticsPage from "./pages/AnalyticsPage.js";
 import ProjectSettingsPage from "./pages/ProjectSettingsPage.js";
 import SettingsPage from "./pages/settings/SettingsPage.js";
-import PlatformEmailSettingsPage from "./pages/platform/PlatformEmailSettingsPage.js";
 
 export interface CurrentUser {
   id: string;
@@ -56,6 +56,7 @@ export default function App() {
             // localStorage right away so it's applied on the very next
             // pre-paint load (see apps/web/src/lib/a11y.ts).
             applyPreferencesFromServer(me.user);
+            applyPersonalizationFromServer(me.user);
           } catch {
             setUser(null);
           }
@@ -107,7 +108,11 @@ export default function App() {
         path="/login"
         element={
           user ? (
-            <Navigate to="/" replace />
+            // Post-login (and any other fresh-authenticated hit on
+            // /login) lands on the user's chosen default landing page
+            // rather than unconditionally the workspaces list — see
+            // resolveLandingPath() in lib/personalization.ts.
+            <Navigate to={resolveLandingPath()} replace />
           ) : (
             <LoginPage onLoggedIn={(u) => setUser(u)} />
           )
@@ -122,19 +127,31 @@ export default function App() {
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route
         path="/platform-settings/email"
-        element={
-          !user ? (
-            <Navigate to="/login" replace />
-          ) : !user.isPlatformAdmin ? (
-            <Navigate to="/" replace />
-          ) : (
-            <PlatformEmailSettingsPage user={user} />
-          )
-        }
+        element={user ? <Navigate to="/settings/projecthub-admin" replace /> : <Navigate to="/login" replace />}
       />
       <Route
         path="/workspace/:workspaceId/projects"
         element={user ? <ProjectsPage user={user} /> : <Navigate to="/login" replace />}
+      />
+      <Route
+        path="/settings"
+        element={
+          user ? (
+            <SettingsPage user={user} onUserUpdated={(u) => setUser(u)} onLoggedOut={() => setUser(null)} />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+      <Route
+        path="/settings/:tab"
+        element={
+          user ? (
+            <SettingsPage user={user} onUserUpdated={(u) => setUser(u)} onLoggedOut={() => setUser(null)} />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
       />
       <Route
         path="/workspace/:workspaceId/settings"
@@ -182,7 +199,7 @@ export default function App() {
           needsSetup ? (
             <Navigate to="/setup" replace />
           ) : user ? (
-            <WorkspacesPage user={user} onLogout={() => setUser(null)} />
+            <LandingRedirect user={user} onLogout={() => setUser(null)} />
           ) : (
             <Navigate to="/login" replace />
           )
@@ -190,4 +207,26 @@ export default function App() {
       />
     </Routes>
   );
+}
+
+/**
+ * Wraps WorkspacesPage at "/" with a one-time, fresh-page-load-only
+ * redirect to the user's chosen default landing page (Personalization tab
+ * -> "Default landing page after login", see lib/personalization.ts).
+ *
+ * `location.key === "default"` is react-router v6's own marker for the
+ * very first location of a browser tab's history — i.e. a real fresh
+ * load/direct navigation, never an in-app Link click or programmatic
+ * navigate (both always mint a fresh random key). This is pure derived
+ * render data (no external mutation), so it's also safe under React 18
+ * StrictMode's double-render — unlike a sessionStorage-flag-during-render
+ * approach, there's no write to react to.
+ */
+function LandingRedirect({ user, onLogout }: { user: CurrentUser; onLogout: () => void }) {
+  const location = useLocation();
+  if (location.key === "default") {
+    const target = resolveLandingPath();
+    if (target !== "/") return <Navigate to={target} replace />;
+  }
+  return <WorkspacesPage user={user} onLogout={onLogout} />;
 }
