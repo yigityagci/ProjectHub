@@ -6,6 +6,7 @@ import { ConflictError, UnauthorizedError, ValidationError } from "../core/error
 import { normalizeEmail } from "./auth.service.js";
 import { verifyPassword, hashPassword, DELETED_ACCOUNT_PASSWORD_HASH } from "./password.js";
 import { revokeAllUserSessions, revokeAllUserSessionsExcept } from "./session.js";
+import { revokeAllUserAgentTokens } from "./agent-token.service.js";
 import { assertNotSoleOwnerOfAnyWorkspace, assertNotLastPlatformAdmin } from "../rbac/authorize.js";
 import { revalidateRoomsForUser } from "../realtime/realtime.js";
 
@@ -252,5 +253,6 @@ export async function deleteAccount(params: DeleteAccountParams): Promise<void> 
   // workspaces/members.routes.ts for role changes/removals that affect live
   // room membership.
   await revokeAllUserSessions(user.id);
+  await revokeAllUserAgentTokens(user.id);
   await revalidateRoomsForUser(user.id);
 }

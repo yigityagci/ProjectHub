@@ -8,7 +8,7 @@ import {
 } from "@projecthub/shared";
 import { ValidationError } from "../core/errors.js";
 import { recordAuditEvent } from "../audit/audit.service.js";
-import { requireAuth, requireCsrf } from "../rbac/guards.js";
+import { requireAuth, requireCsrf, requireSessionAuth } from "../rbac/guards.js";
 import { updateProfile, updatePreferences, changeEmail, changePassword, deleteAccount } from "./account.service.js";
 import { LOGIN_RATE_LIMIT } from "./auth.routes.js";
 import { clearSessionCookie } from "./session.js";
@@ -16,7 +16,7 @@ import { clearSessionCookie } from "./session.js";
 export async function registerAccountRoutes(app: FastifyInstance): Promise<void> {
   app.patch(
     "/api/auth/me/profile",
-    { preHandler: [requireAuth, requireCsrf] },
+    { preHandler: [requireAuth, requireCsrf, requireSessionAuth] },
     async (req, reply) => {
       const parsed = updateProfileSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -29,7 +29,7 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
 
   app.patch(
     "/api/auth/me/preferences",
-    { preHandler: [requireAuth, requireCsrf] },
+    { preHandler: [requireAuth, requireCsrf, requireSessionAuth] },
     async (req, reply) => {
       const parsed = updatePreferencesSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -42,7 +42,7 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
 
   app.post(
     "/api/auth/email/change",
-    { config: { rateLimit: LOGIN_RATE_LIMIT }, preHandler: [requireAuth, requireCsrf] },
+    { config: { rateLimit: LOGIN_RATE_LIMIT }, preHandler: [requireAuth, requireCsrf, requireSessionAuth] },
     async (req, reply) => {
       const parsed = changeEmailSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -77,7 +77,7 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
 
   app.post(
     "/api/auth/password/change",
-    { config: { rateLimit: LOGIN_RATE_LIMIT }, preHandler: [requireAuth, requireCsrf] },
+    { config: { rateLimit: LOGIN_RATE_LIMIT }, preHandler: [requireAuth, requireCsrf, requireSessionAuth] },
     async (req, reply) => {
       const parsed = changePasswordSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -112,7 +112,7 @@ export async function registerAccountRoutes(app: FastifyInstance): Promise<void>
 
   app.post(
     "/api/auth/account/delete",
-    { config: { rateLimit: LOGIN_RATE_LIMIT }, preHandler: [requireAuth, requireCsrf] },
+    { config: { rateLimit: LOGIN_RATE_LIMIT }, preHandler: [requireAuth, requireCsrf, requireSessionAuth] },
     async (req, reply) => {
       const parsed = deleteAccountSchema.safeParse(req.body);
       if (!parsed.success) {

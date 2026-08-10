@@ -29,7 +29,7 @@ import {
   buildPasswordResetLink,
 } from "./password-reset.service.js";
 import { sendPasswordResetEmail } from "../email/email.service.js";
-import { requireAuth, requireCsrf } from "../rbac/guards.js";
+import { requireAuth, requireCsrf, requireSessionAuth } from "../rbac/guards.js";
 import { toAuthenticatedUser } from "../rbac/context.js";
 import { NotFoundError } from "../core/errors.js";
 import { serializeUserSettings } from "./account.service.js";
@@ -191,7 +191,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     "/api/auth/logout",
-    { preHandler: [requireAuth, requireCsrf] },
+    { preHandler: [requireAuth, requireCsrf, requireSessionAuth] },
     async (req, reply) => {
       if (req.ctx.sessionId) {
         await revokeSession(req.ctx.sessionId);
@@ -211,7 +211,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ user: serializeUserSettings(user) });
   });
 
-  app.get("/api/auth/sessions", { preHandler: [requireAuth] }, async (req, reply) => {
+  app.get("/api/auth/sessions", { preHandler: [requireAuth, requireSessionAuth] }, async (req, reply) => {
     const sessions = await prisma.session.findMany({
       where: { userId: req.ctx.user!.id, revokedAt: null },
       orderBy: { createdAt: "desc" },
@@ -231,7 +231,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     "/api/auth/sessions/:id/revoke",
-    { preHandler: [requireAuth, requireCsrf] },
+    { preHandler: [requireAuth, requireCsrf, requireSessionAuth] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const session = await prisma.session.findUnique({ where: { id } });

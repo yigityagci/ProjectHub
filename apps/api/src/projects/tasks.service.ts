@@ -3,7 +3,7 @@ import type { CreateTaskInput, TaskListQuery, UpdateTaskInput } from "@projecthu
 import { prisma } from "../core/prisma.js";
 import { NotFoundError, ValidationError } from "../core/errors.js";
 import { computeAppendPosition, computeInsertPosition } from "./position.js";
-import { createActivityEvent, broadcastActivityEvent } from "../activity/activity.service.js";
+import { createActivityEvent, broadcastActivityEvent, type ActingAgent } from "../activity/activity.service.js";
 
 export const DONE_CATEGORY = "done";
 
@@ -145,6 +145,8 @@ export interface CreateTaskParams {
   input: CreateTaskInput;
   /** Server-derived only — set exclusively by the recurrence scheduler handler (recurrence.service.ts). Never reachable from a request body. */
   recurrenceTemplateId?: string | null;
+  /** Present only when this task was created via the MCP create_task tool. See activity.service.ts#ActingAgent. */
+  via?: ActingAgent;
 }
 
 export async function createTask(params: CreateTaskParams) {
@@ -226,6 +228,7 @@ export async function createTask(params: CreateTaskParams) {
       actorId: creatorId,
       type: "task_created",
       payload: { taskId: created.id, taskTitle: created.title, actorDisplayName: creatorDisplayName },
+      via: params.via,
     });
 
     return { task: created, activityEvent: event };
@@ -360,6 +363,8 @@ export interface MoveTaskInputResolved {
 export interface TaskMoveActor {
   id: string;
   displayName: string;
+  /** Present only when this move was performed via the MCP move_task tool. See activity.service.ts#ActingAgent. */
+  via?: ActingAgent;
 }
 
 export async function moveTask(
@@ -488,6 +493,7 @@ export async function moveTask(
         toColumnName: targetColumn.name,
         actorDisplayName: actor.displayName,
       },
+      via: actor.via,
     });
     broadcastActivityEvent(activityEvent);
   }

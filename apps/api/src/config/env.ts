@@ -33,6 +33,11 @@ const envSchema = z
     // Invitation), so their TTL is denominated in days, not hours, and is
     // the longest-lived of the three token types here.
     REGISTRATION_TOKEN_TTL_DAYS: z.coerce.number().positive().default(30),
+    // AgentToken (see auth/agent-token.service.ts) — the MCP server's bearer
+    // credential. Every sibling bearer-token model in this codebase expires,
+    // and this is the most powerful one (it acts within a real user's full
+    // RBAC permissions), so it defaults to expiring too.
+    AGENT_TOKEN_TTL_DAYS: z.coerce.number().positive().default(90),
     RATE_LIMIT_PASSWORD_RESET_MAX: z.coerce.number().positive().default(5),
     RATE_LIMIT_PASSWORD_RESET_WINDOW_MINUTES: z.coerce.number().positive().default(15),
     ARGON2_MEMORY_COST_KIB: z.coerce.number().positive().default(19456),

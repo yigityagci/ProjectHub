@@ -7,6 +7,19 @@ import { isDeletedUser } from "../users/user-serialization.js";
 
 type PrismaOrTx = typeof prisma | Prisma.TransactionClient;
 
+/**
+ * The AI client that acted on a human's behalf, if this event was produced
+ * by an MCP tool call rather than an ordinary REST-route action (see mcp/).
+ * `agentLabel` is a snapshot of the token's label AT THE TIME of the
+ * action — never re-resolved later, same "frozen at write time" precedent
+ * as every other denormalized field in `payload` (see the module doc
+ * comment above).
+ */
+export interface ActingAgent {
+  agentTokenId: string;
+  agentLabel: string;
+}
+
 export interface RecordActivityEventInput {
   workspaceId: string;
   projectId: string;
@@ -28,6 +41,13 @@ export interface RecordActivityEventInput {
    * may have changed or been deleted by the time the feed is read.
    */
   payload: Record<string, unknown>;
+  /**
+   * Present only when this event was produced by an MCP tool call.
+   * `actorId` above is ALWAYS the responsible human, unconditionally,
+   * regardless of whether `via` is present — this field only ever adds
+   * attribution, never changes who is credited with the action.
+   */
+  via?: ActingAgent;
 }
 
 /**
@@ -67,9 +87,21 @@ export async function createActivityEvent(
       workspaceId: input.workspaceId,
       projectId: input.projectId,
       categoryId: input.categoryId ?? null,
+      // actorId is written UNCONDITIONALLY from input.actorId — never
+      // derived from or overridden by `via` — so the responsible human is
+      // always credited, regardless of whether an AI client acted for them.
       actorId: input.actorId,
+      viaAgentTokenId: input.via?.agentTokenId ?? null,
       type: input.type,
-      payload: input.payload as object,
+      // `viaAgentLabel` is spread in LAST (after the caller's own payload
+      // fields) so this function is the single writer of that key across
+      // the whole codebase — no caller ever sets payload.viaAgentLabel
+      // itself; it only ever arrives via the `via` parameter above. Absent
+      // entirely (not even `undefined`) for a manual, non-agent action.
+      payload: {
+        ...input.payload,
+        ...(input.via ? { viaAgentLabel: input.via.agentLabel } : {}),
+      } as object,
     },
   });
 }

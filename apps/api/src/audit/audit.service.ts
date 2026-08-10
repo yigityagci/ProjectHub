@@ -40,6 +40,8 @@ export type AuditAction =
   | "account_deletion.failed"
   | "registration_token.generated"
   | "registration_token.revoked"
+  | "agent_token.generated"
+  | "agent_token.revoked"
   | "user.registered"
   | "platform.email_config.updated"
   | "platform.email_config.deleted"

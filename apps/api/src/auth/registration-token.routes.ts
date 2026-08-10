@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { createRegistrationTokenSchema, type RoleKey } from "@projecthub/shared";
 import { ValidationError } from "../core/errors.js";
-import { requireAuth, requireCsrf, requireMembership, requirePermission } from "../rbac/guards.js";
+import { requireAuth, requireCsrf, requireMembership, requirePermission, requireSessionAuth } from "../rbac/guards.js";
 import { assertCanAssignRole } from "../rbac/authorize.js";
 import { recordAuditEvent } from "../audit/audit.service.js";
 import {
@@ -17,6 +17,7 @@ export async function registerRegistrationTokenRoutes(app: FastifyInstance): Pro
       preHandler: [
         requireAuth,
         requireCsrf,
+        requireSessionAuth,
         requireMembership,
         requirePermission("registration_token.manage"),
       ],
@@ -84,6 +85,7 @@ export async function registerRegistrationTokenRoutes(app: FastifyInstance): Pro
       preHandler: [
         requireAuth,
         requireCsrf,
+        requireSessionAuth,
         requireMembership,
         requirePermission("registration_token.manage"),
       ],

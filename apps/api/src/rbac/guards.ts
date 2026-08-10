@@ -3,17 +3,67 @@ import { ROLE_RANK, type RoleKey } from "@projecthub/shared";
 import { prisma } from "../core/prisma.js";
 import { UnauthorizedError, NotFoundError, ForbiddenError } from "../core/errors.js";
 import { getRawSessionToken, resolveSession, CSRF_COOKIE_NAME } from "../auth/session.js";
+import { resolveAgentToken } from "../auth/agent-token.service.js";
 import { toAuthenticatedUser } from "./context.js";
 
 const PROJECT_NOT_FOUND_MESSAGE = "This project doesn't exist or you don't have access to it.";
 const CATEGORY_NOT_FOUND_MESSAGE = "This category doesn't exist or you don't have access to it.";
 
 /**
- * Requires a valid, non-expired, non-revoked session. Populates
- * req.ctx.user and req.ctx.sessionId. Permissions are intentionally NOT
- * cached on the session — requireMembership loads them fresh per request.
+ * Extracts the raw bearer value from an `Authorization: Bearer <token>`
+ * header, or `null` if the header is absent or uses a different scheme
+ * (e.g. `Basic`, which a reverse proxy might attach) — a purely
+ * syntax-level, no-DB-lookup decision, made BEFORE resolving anything.
+ */
+function extractBearerToken(req: FastifyRequest): string | null {
+  const header = req.headers.authorization;
+  if (!header || Array.isArray(header)) return null;
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  if (!match || !match[1]) return null;
+  return match[1].trim();
+}
+
+/**
+ * Requires a valid, non-expired, non-revoked credential — EITHER a session
+ * cookie OR an `Authorization: Bearer <agentToken>` header — producing an
+ * identical req.ctx.user shape either way so every downstream guard stays
+ * completely unchanged.
+ *
+ * The Bearer-scheme check happens FIRST, decided from request syntax alone
+ * (no DB lookup), before any cookie handling. If a Bearer-scheme
+ * Authorization header is present, this is a deliberate, fail-closed
+ * decision point with NO fallback to cookie auth on failure: an unknown,
+ * revoked, expired, or inactive-owner token throws immediately. This
+ * no-fallback property is exactly what makes requireCsrf's agent-token
+ * exemption safe (see requireCsrf below) — there is no path where a request
+ * that merely happens to lack a valid bearer token gets silently
+ * reauthenticated via cookie and treated as CSRF-exempt.
+ *
+ * If no Bearer-scheme header is present (including a non-Bearer scheme,
+ * e.g. `Basic`), this falls through to the existing cookie-based session
+ * flow, unchanged.
  */
 export async function requireAuth(req: FastifyRequest, _reply: FastifyReply): Promise<void> {
+  req.ctx = req.ctx ?? {};
+
+  const bearerToken = extractBearerToken(req);
+  if (bearerToken !== null) {
+    const resolved = await resolveAgentToken(bearerToken);
+    if (!resolved) {
+      throw new UnauthorizedError();
+    }
+
+    req.ctx.user = {
+      id: resolved.user.id,
+      email: resolved.user.email,
+      displayName: resolved.user.displayName,
+      isPlatformAdmin: resolved.user.isPlatformAdmin,
+    };
+    req.ctx.authMethod = "agent_token";
+    req.ctx.agentToken = { id: resolved.id, label: resolved.label };
+    return;
+  }
+
   const rawToken = getRawSessionToken(req);
   if (!rawToken) {
     throw new UnauthorizedError();
@@ -24,8 +74,8 @@ export async function requireAuth(req: FastifyRequest, _reply: FastifyReply): Pr
     throw new UnauthorizedError();
   }
 
-  req.ctx = req.ctx ?? {};
   req.ctx.user = toAuthenticatedUser(session.user);
+  req.ctx.authMethod = "session";
   req.ctx.sessionId = session.id;
 }
 
@@ -33,16 +83,58 @@ export async function requireAuth(req: FastifyRequest, _reply: FastifyReply): Pr
  * CSRF protection via the double-submit cookie pattern: a non-httpOnly
  * cookie value must be echoed back in the X-CSRF-Token header on every
  * state-changing (non-GET/HEAD/OPTIONS) request.
+ *
+ * Skips ONLY when `req.ctx.authMethod === "agent_token"` — this positive,
+ * specific condition, never "the cookie happens to be missing" and never
+ * "authMethod is undefined" (undefined means requireAuth didn't run, or ran
+ * and matched neither path — CSRF stays enforced, fail-closed). A browser
+ * cannot be tricked into attaching an Authorization header cross-origin
+ * (unlike a cookie), so double-submit CSRF defends against nothing for
+ * Bearer-authenticated requests — but ONLY because requireAuth's
+ * agent-token path (above) never falls back to cookie auth on failure; see
+ * its doc comment.
  */
 export async function requireCsrf(req: FastifyRequest, _reply: FastifyReply): Promise<void> {
   const method = req.method.toUpperCase();
   if (method === "GET" || method === "HEAD" || method === "OPTIONS") return;
+
+  if (req.ctx?.authMethod === "agent_token") return;
 
   const cookieToken = req.cookies[CSRF_COOKIE_NAME];
   const headerToken = req.headers["x-csrf-token"];
 
   if (!cookieToken || !headerToken || Array.isArray(headerToken) || cookieToken !== headerToken) {
     throw new UnauthorizedError("Missing or invalid CSRF token.");
+  }
+}
+
+/**
+ * Fail-closed gate for routes that must remain agent-token-UNREACHABLE:
+ * minting/managing bearer credentials of any kind (agent tokens,
+ * registration tokens), platform administration, and account-recovery-
+ * sensitive routes (email/password change) — a leaked agent token minting
+ * infinite replacement credentials would defeat "Revoke" as a security
+ * control, and some of these routes (email change) rely on
+ * `req.ctx.sessionId`, which is undefined on the bearer path. Throws 403
+ * unless the caller authenticated via a session cookie.
+ */
+export async function requireSessionAuth(req: FastifyRequest, _reply: FastifyReply): Promise<void> {
+  if (req.ctx?.authMethod !== "session") {
+    throw new ForbiddenError();
+  }
+}
+
+/**
+ * Used ONLY by the MCP endpoint itself (POST /api/mcp), to reject
+ * cookie-authenticated callers — a cookie-authenticated call has no agent
+ * label to attribute in the activity feed, so it must never reach an MCP
+ * tool. Throws 401 (not 403): this mirrors requireAuth's "you're not
+ * authenticated for this at all" semantics, rather than
+ * requireSessionAuth's "you're authenticated, but via the wrong axis" 403.
+ */
+export async function requireAgentTokenAuth(req: FastifyRequest, _reply: FastifyReply): Promise<void> {
+  if (req.ctx?.authMethod !== "agent_token") {
+    throw new UnauthorizedError();
   }
 }
 
@@ -227,10 +319,17 @@ export async function requireCategoryAccess(req: FastifyRequest, _reply: Fastify
  * requirePermission's 403.
  *
  * Must run after requireAuth (it reads req.ctx.user).
+ *
+ * Platform administration is a DIFFERENT authorization axis from workspace
+ * RBAC, deliberately not delegable to an AI client in v1: even a platform
+ * admin's own agent token is rejected here, regardless of permissions.
  */
 export async function requirePlatformAdmin(req: FastifyRequest, _reply: FastifyReply): Promise<void> {
   if (!req.ctx?.user) {
     throw new UnauthorizedError();
+  }
+  if (req.ctx.authMethod !== "session") {
+    throw new ForbiddenError();
   }
   if (!req.ctx.user.isPlatformAdmin) {
     throw new ForbiddenError();

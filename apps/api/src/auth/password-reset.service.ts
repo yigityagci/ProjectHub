@@ -6,6 +6,7 @@ import { normalizeEmail, findUserByEmail } from "./auth.service.js";
 import { hashToken } from "./session.js";
 import { hashPassword } from "./password.js";
 import { revokeAllUserSessions } from "./session.js";
+import { revokeAllUserAgentTokens } from "./agent-token.service.js";
 
 /**
  * Single generic message for every token-failure mode (missing, expired,
@@ -94,6 +95,11 @@ export async function consumePasswordResetToken(
   });
 
   await revokeAllUserSessions(userId);
+  // A reset password may mean the old one (and anything derived from it,
+  // including a leaked agent token) was compromised — nuke every AgentToken
+  // too, same "this identity's security posture just changed" rationale as
+  // the session revocation just above.
+  await revokeAllUserAgentTokens(userId);
 
   return { userId };
 }

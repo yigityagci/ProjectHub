@@ -17,6 +17,11 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
             in: "cookie",
             name: "ph_session",
           },
+          agentToken: {
+            type: "http",
+            scheme: "bearer",
+            description: "AgentToken bearer credential for the MCP server (POST /api/mcp).",
+          },
         },
       },
     },

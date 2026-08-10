@@ -15,6 +15,7 @@ import { registerHealthRoutes } from "./core/health.js";
 import { registerOpenApi } from "./openapi.js";
 import { registerAuthRoutes } from "./auth/auth.routes.js";
 import { registerAccountRoutes } from "./auth/account.routes.js";
+import { registerAgentTokenRoutes } from "./auth/agent-token.routes.js";
 import { registerSetupRoutes } from "./auth/setup.routes.js";
 import { registerRegistrationTokenRoutes } from "./auth/registration-token.routes.js";
 import { registerPlatformEmailRoutes } from "./email/platform-email.routes.js";
@@ -35,6 +36,7 @@ import { registerAttachmentRoutes } from "./attachments/attachments.routes.js";
 import { registerNotificationRoutes } from "./notifications/notifications.routes.js";
 import { registerActivityRoutes } from "./activity/activity.routes.js";
 import { registerAnalyticsRoutes } from "./analytics/analytics.routes.js";
+import { registerMcpRoutes } from "./mcp/mcp.routes.js";
 import { initRealtime } from "./realtime/realtime.js";
 import { initScheduler } from "./core/scheduler.js";
 import { recurringTasksHandler } from "./projects/recurrence.service.js";
@@ -134,6 +136,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await registerSetupRoutes(app);
   await registerAuthRoutes(app);
   await registerAccountRoutes(app);
+  await registerAgentTokenRoutes(app);
   await registerWorkspaceRoutes(app);
   await registerMemberRoutes(app);
   await registerInvitationRoutes(app);
@@ -153,6 +156,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await registerNotificationRoutes(app);
   await registerActivityRoutes(app);
   await registerAnalyticsRoutes(app);
+  await registerMcpRoutes(app);
 
   initRealtime(app);
   initScheduler(app, { handlers: [recurringTasksHandler, dueDateReminderHandler] });

@@ -172,6 +172,7 @@ model User {
   // shape), so Prisma requires the array form here regardless.
   createdRegistrationTokens RegistrationToken[] @relation("RegistrationTokenCreatedBy")
   usedRegistrationTokens    RegistrationToken[] @relation("RegistrationTokenUsedBy")
+  agentTokens         AgentToken[]            @relation("AgentTokenOwner")
   auditLogEntries     AuditLogEntry[]
   platformEmailConfigUpdates PlatformEmailConfig[] @relation("PlatformEmailConfigUpdatedBy")
   platformPostfixConfigUpdates PlatformPostfixConfig[] @relation("PlatformPostfixConfigUpdatedBy")
@@ -366,6 +367,33 @@ model RegistrationToken {
   @@index([workspaceId])
   @@index([roleId])
   @@map("registration_tokens")
+}
+
+// Bearer-token credential for the MCP server (see mcp/mcp.routes.ts):
+// user-scoped (NOT workspace-scoped — unlike RegistrationToken/Invitation),
+// mirroring Session's exact hashed-bearer-token shape (random 32-byte
+// token, only its sha256 hash stored, never the raw value). A holder acts
+// strictly within the owning user's real, live-checked RBAC permissions —
+// this is an authentication path, not a parallel authorization system.
+//
+// `label` is REQUIRED (unlike RegistrationToken.label, which is optional):
+// there is no acceptable fallback for a missing client name when the
+// activity feed needs to render "via <label>".
+model AgentToken {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation("AgentTokenOwner", fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  label      String
+  expiresAt  DateTime
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  activityEvents ActivityEvent[] @relation("ActivityEventViaAgentToken")
+
+  @@index([userId])
+  @@map("agent_tokens")
 }
 
 model AuditLogEntry {
@@ -958,6 +986,16 @@ model ActivityEvent {
   taskCategory TaskCategory?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   actorId      String
   actor        User              @relation("ActivityEventActor", fields: [actorId], references: [id])
+  // Set when this event was produced by an MCP tool call (see mcp/), never
+  // when produced by an ordinary REST-route action. `actorId` above always
+  // stays the responsible human either way — this column never changes who
+  // is credited with the action, only whether an AI client acted on their
+  // behalf. SetNull (not Cascade) on token deletion/revocation: a feed entry
+  // must never disappear just because its token was later revoked — the
+  // rendered "via <label>" text comes from the frozen payload.viaAgentLabel
+  // snapshot below, not a live join through this FK.
+  viaAgentTokenId String?
+  viaAgentToken   AgentToken?     @relation("ActivityEventViaAgentToken", fields: [viaAgentTokenId], references: [id], onDelete: SetNull)
   type         ActivityEventType
   payload      Json              @default("{}")
   createdAt    DateTime          @default(now())
@@ -965,6 +1003,7 @@ model ActivityEvent {
   @@index([workspaceId])
   @@index([projectId, createdAt])
   @@index([categoryId])
+  @@index([viaAgentTokenId])
   @@map("activity_events")
 }
 

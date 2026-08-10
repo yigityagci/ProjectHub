@@ -7,7 +7,7 @@ import { isElevatedRole } from "../rbac/authorize.js";
 import type { RoleKey } from "@projecthub/shared";
 import { emitToCategory } from "../realtime/realtime.js";
 import { createNotification } from "../notifications/notifications.service.js";
-import { createActivityEvent, broadcastActivityEvent } from "../activity/activity.service.js";
+import { createActivityEvent, broadcastActivityEvent, type ActingAgent } from "../activity/activity.service.js";
 import { isDeletedUser } from "../users/user-serialization.js";
 
 const COMMENT_NOT_FOUND_MESSAGE = "This comment doesn't exist on this task.";
@@ -109,6 +109,8 @@ export interface CreateCommentParams {
   authorId: string;
   authorDisplayName: string;
   input: CreateCommentInput;
+  /** Present only when this comment was created via the MCP add_comment tool. See activity.service.ts#ActingAgent. */
+  via?: ActingAgent;
 }
 
 export async function createComment(params: CreateCommentParams) {
@@ -141,6 +143,7 @@ export async function createComment(params: CreateCommentParams) {
       actorId: authorId,
       type: "comment_added",
       payload: { taskId, taskTitle: task.title, commentId: created.id, actorDisplayName: authorDisplayName },
+      via: params.via,
     });
     return { comment: created, activityEvent: event };
   });
