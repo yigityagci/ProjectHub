@@ -49,6 +49,21 @@ const envSchema = z
     // server.ts. Operators running minute-granularity work can raise this
     // substantially.
     SCHEDULER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
+    // Self-hosted Postfix control plane (see email/mail-control.client.ts).
+    // All four are deliberately optional and NOT added to the production
+    // superRefine block below: self-hosted mail delivery is opt-in, and a
+    // production install using external SMTP must still boot fine without
+    // any of these. Their mere presence (MAIL_CONTROL_URL +
+    // MAIL_CONTROL_TOKEN) is also the API's primary signal that it's
+    // running under the shipped docker-compose stack — see
+    // getSelfHostedAvailability()'s "config gate".
+    MAIL_CONTROL_URL: z.string().url().optional(),
+    MAIL_CONTROL_TOKEN: z
+      .string()
+      .min(32, "MAIL_CONTROL_TOKEN must be at least 32 characters long")
+      .optional(),
+    MAIL_CONTROL_SMTP_HOST: z.string().min(1).optional(),
+    MAIL_CONTROL_SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(25),
   })
   .superRefine((value, ctx) => {
     if (value.NODE_ENV === "production") {

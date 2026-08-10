@@ -101,7 +101,9 @@ and `packages/shared/package.json` for exact dependency versions.
 git clone <this-repo-url> projecthub
 cd projecthub
 cp .env.example .env
-# Edit .env: set POSTGRES_PASSWORD and APP_SECRET to strong random values.
+# Edit .env: set POSTGRES_PASSWORD, APP_SECRET, and MAIL_CONTROL_TOKEN to
+# strong random values (MAIL_CONTROL_TOKEN is required for `api` to boot
+# even if you never enable self-hosted mail delivery - see .env.example).
 docker-compose up -d
 ```
 
@@ -140,7 +142,8 @@ automated test suite; see `pnpm test`.)
 
 1. **Clone and configure:**
    `git clone`, `cd projecthub`, `cp .env.example .env`, then set
-   `POSTGRES_PASSWORD` and `APP_SECRET` to strong random values.
+   `POSTGRES_PASSWORD`, `APP_SECRET`, and `MAIL_CONTROL_TOKEN` to strong
+   random values.
 2. **Bring up the stack:** `docker-compose up -d`, then
    `docker-compose ps` until `db`, `redis`, `api`, and `web` all report
    `healthy`.
@@ -210,6 +213,26 @@ automated test suite; see `pnpm test`.)
 19. **Take a backup:** run `./scripts/backup.sh` and confirm it produces a
     non-empty `.sql.gz` and `.tar.gz` in `./backups/` (see
     `docs/BACKUP_AND_RESTORE.md`).
+
+## Self-hosted mail delivery (optional)
+
+By default, ProjectHub sends outbound mail via an external SMTP relay
+configured at runtime from Settings > Platform Administration. As an
+alternative, an admin can switch to a self-hosted Postfix instance that
+ships as part of this repo (`apps/mail-control`), running in its own
+container alongside a private control-plane listener the API talks to.
+
+Self-hosted mode is entirely opt-in and requires the shipped Docker
+Compose stack:
+
+```bash
+docker compose --profile postfix up -d
+```
+
+It is **not available** on the "Local development (without Docker)" path
+below - there is no mail-control listener to talk to there, so Settings >
+Mail Delivery reports self-hosted mode as unavailable and external SMTP
+remains the only option.
 
 ## Local development (without Docker)
 

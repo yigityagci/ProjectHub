@@ -43,7 +43,11 @@ export type AuditAction =
   | "user.registered"
   | "platform.email_config.updated"
   | "platform.email_config.deleted"
-  | "platform.email_config.test_sent";
+  | "platform.email_config.test_sent"
+  | "platform.postfix_config.updated"
+  | "platform.postfix_config.deleted"
+  | "platform.postfix_config.dkim_rotated"
+  | "platform.postfix_config.test_sent";
 
 export interface RecordAuditEventInput {
   workspaceId?: string | null;

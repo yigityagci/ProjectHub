@@ -84,11 +84,23 @@ export async function registerPlatformEmailRoutes(app: FastifyInstance): Promise
 
       let ok = true;
       let error: string | undefined;
+      // Nodemailer SMTP errors carry these three well-known fields
+      // (err.code/err.command/err.responseCode). Pass ONLY those through —
+      // never err.stack, never any config value — so the admin gets an
+      // actionable diagnostic without leaking internals.
+      let detail: { code?: string; command?: string; responseCode?: number } | undefined;
       try {
         await sendTestEmail(recipientEmail);
       } catch (err) {
         ok = false;
         error = err instanceof Error ? err.message : "Failed to send the test email.";
+        if (err && typeof err === "object") {
+          const nodemailerErr = err as { code?: string; command?: string; responseCode?: number };
+          const { code, command, responseCode } = nodemailerErr;
+          if (code !== undefined || command !== undefined || responseCode !== undefined) {
+            detail = { code, command, responseCode };
+          }
+        }
       }
 
       await recordAuditEvent({
@@ -102,7 +114,7 @@ export async function registerPlatformEmailRoutes(app: FastifyInstance): Promise
         userAgent: req.headers["user-agent"] ?? null,
       });
 
-      return reply.send(ok ? { ok } : { ok, error });
+      return reply.send(ok ? { ok } : { ok, error, ...(detail ? { detail } : {}) });
     },
   );
 

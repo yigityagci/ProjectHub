@@ -55,8 +55,9 @@ export default function InviteAcceptPage({ user }: { user: CurrentUser | null })
 
   return (
     <div className="ph-shell ph-shell-auth">
-      <Brand />
-      <div className="ph-card">
+      <div className="ph-auth-box">
+        <Brand />
+        <div className="ph-card">
         <h1>Accept invitation</h1>
         <p className="ph-subtitle">
           Paste the invitation token from your invite email/link, or use the link directly.
@@ -97,6 +98,7 @@ export default function InviteAcceptPage({ user }: { user: CurrentUser | null })
             )}
           </>
         )}
+        </div>
       </div>
     </div>
   );

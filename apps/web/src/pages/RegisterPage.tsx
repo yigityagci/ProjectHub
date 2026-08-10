@@ -44,8 +44,9 @@ export default function RegisterPage() {
 
   return (
     <div className="ph-shell ph-shell-auth">
-      <Brand />
-      <div className="ph-card">
+      <div className="ph-auth-box">
+        <Brand />
+        <div className="ph-card">
         <h1>Create your account</h1>
         <p className="ph-subtitle">Register to join or create ProjectHub workspaces.</p>
 
@@ -113,6 +114,7 @@ export default function RegisterPage() {
             Already have an account? Log in
           </Link>
         </p>
+        </div>
       </div>
     </div>
   );

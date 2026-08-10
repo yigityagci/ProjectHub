@@ -47,6 +47,7 @@ export async function resetDatabase(): Promise<void> {
       "roles",
       "workspaces",
       "platform_email_configs",
+      "platform_postfix_configs",
       "sessions",
       "users"
     RESTART IDENTITY CASCADE;

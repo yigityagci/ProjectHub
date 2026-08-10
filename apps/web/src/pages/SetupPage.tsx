@@ -30,8 +30,9 @@ export default function SetupPage({ onComplete }: { onComplete: (user: CurrentUs
 
   return (
     <div className="ph-shell ph-shell-auth">
-      <Brand />
-      <div className="ph-card">
+      <div className="ph-auth-box">
+        <Brand />
+        <div className="ph-card">
         <h1>Create the first administrator account</h1>
         <p className="ph-subtitle">
           This ProjectHub instance has no users yet. The account you create here
@@ -72,6 +73,7 @@ export default function SetupPage({ onComplete }: { onComplete: (user: CurrentUs
             {loading ? "Creating..." : "Create administrator account"}
           </button>
         </form>
+        </div>
       </div>
     </div>
   );

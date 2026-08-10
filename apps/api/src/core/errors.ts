@@ -29,8 +29,16 @@ export class ForbiddenError extends AppError {
 }
 
 export class ValidationError extends AppError {
-  constructor(message = "Invalid input.") {
+  // Optional per-field detail, currently populated only when this error is
+  // constructed from a mail-control listener's 422 response (see
+  // email/mail-control.client.ts) — the listener's re-validation can name
+  // exactly which dotted field path failed, which a plain message string
+  // can't carry on its own.
+  readonly fieldErrors?: Record<string, string>;
+
+  constructor(message = "Invalid input.", fieldErrors?: Record<string, string>) {
     super(422, "VALIDATION_ERROR", message);
+    this.fieldErrors = fieldErrors;
   }
 }
 

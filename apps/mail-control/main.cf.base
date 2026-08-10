@@ -1,0 +1,42 @@
+# ProjectHub self-hosted Postfix — baked-in invariants.
+#
+# This file is copied to /etc/postfix/main.cf.base at image build time and
+# used as the STARTING point for every staged config generation (see
+# src/postfix.ts#stageConfigDir). Every line below is an invariant an
+# `apply` can never weaken: the mail-control listener's postconf -e calls
+# only ever ADD/OVERRIDE the specific typed parameters listed in
+# src/postfix.ts#buildPostconfArgs — none of them touch the anti-open-relay
+# lines below, so no apply payload (from anyone, including the ProjectHub
+# API) can ever loosen these.
+#
+# `master.cf` is NEVER touched by this image or the listener at any point —
+# this eliminates a whole class of risk (no operation can ever add a
+# listener/pipe transport).
+
+# Send-only MTA: never accept mail FROM the internet, never relay for
+# anyone outside mynetworks (which is restricted to the control-plane
+# subnet + loopback — see POSTFIX_MYNETWORKS in docker-compose.yml). This
+# pair is what prevents this Postfix instance from ever becoming an open
+# relay, regardless of anything an `apply` payload can configure.
+smtpd_recipient_restrictions = permit_mynetworks, reject
+smtpd_relay_restrictions = permit_mynetworks, reject_unauth_destination
+smtpd_helo_required = yes
+disable_vrfy_command = yes
+
+smtpd_tls_security_level = may
+smtp_tls_security_level = may
+smtp_tls_note_starttls_offer = yes
+
+inet_interfaces = all
+inet_protocols = ipv4
+biff = no
+append_dot_mydomain = no
+
+milter_default_action = accept
+milter_protocol = 6
+
+# Logs to stdout so `docker compose logs postfix` shows Postfix's own
+# logs without needing rsyslog/syslog inside the container.
+maillog_file = /dev/stdout
+
+compatibility_level = 3.6

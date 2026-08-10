@@ -352,13 +352,49 @@ select:disabled {
 }
 
 /* Opt-in modifier for single-card auth-style screens (login, first-run
- * setup, invite acceptance): centers the card vertically too, not just
- * horizontally. Deliberately not the `.ph-shell` default — dashboard/list
- * shells reuse that class with content that can exceed viewport height,
- * where `justify-content: center` would clip the top of the content when
- * scrolled instead of just letting it start at the top. */
+ * setup, invite acceptance): centers the card vertically, with <Brand/>
+ * pinned just above it, instead of the `.ph-shell` default (top-aligned —
+ * dashboard/list shells reuse that class with content that can exceed
+ * viewport height).
+ *
+ * Deliberately NOT flex/grid centering (`justify-content: center` and a
+ * `1fr auto 1fr` grid were both tried and both broke: either the shell
+ * grows taller than the viewport whenever content needs more room —
+ * `min-height` is a floor, not a ceiling, so that growth zeroes out the
+ * centering math and leaves the card pinned near the top — or the "safe"
+ * alignment fallback that's supposed to prevent overflow doesn't account
+ * for an absolutely-positioned descendant like the brand and clips it
+ * anyway). `top: 50%; transform: translateY(-50%)` is a hard, unconditional
+ * guarantee instead of a layout computation with edge cases: the card
+ * sits at exactly half the shell's height no matter what grows, shrinks,
+ * or overflows. `.ph-shell-auth` has no in-flow content of its own (the
+ * one child, .ph-auth-box, is taken out of flow below), so its height is
+ * always exactly `min-height: 100vh` — never inflated by content. */
 .ph-shell-auth {
-  justify-content: center;
+  position: relative;
+  min-height: 100vh;
+}
+
+/* Positioned independently of .ph-shell's flex layout, centered directly
+ * on the viewport via .ph-shell-auth's height above. Brand is pulled out
+ * of flow (position: absolute) and pinned just above the card, so its own
+ * size never shifts the card off true vertical center. */
+.ph-auth-box {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  max-width: 420px;
+  padding: 0 1rem;
+}
+
+.ph-auth-box .ph-brand {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
 }
 
 .ph-brand {

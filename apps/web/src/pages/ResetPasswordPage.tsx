@@ -40,8 +40,9 @@ export default function ResetPasswordPage() {
 
   return (
     <div className="ph-shell ph-shell-auth">
-      <Brand />
-      <div className="ph-card">
+      <div className="ph-auth-box">
+        <Brand />
+        <div className="ph-card">
         <h1>Reset password</h1>
         {!token && !success && (
           <div className="ph-alert ph-alert-error">{INVALID_LINK_MESSAGE}</div>
@@ -90,6 +91,7 @@ export default function ResetPasswordPage() {
             Log in now
           </Link>
         </p>
+        </div>
       </div>
     </div>
   );

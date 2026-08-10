@@ -27,8 +27,9 @@ export default function ForgotPasswordPage() {
 
   return (
     <div className="ph-shell ph-shell-auth">
-      <Brand />
-      <div className="ph-card">
+      <div className="ph-auth-box">
+        <Brand />
+        <div className="ph-card">
         <h1>Forgot password</h1>
         <p className="ph-subtitle">
           Enter your account's email address and we'll send you a password reset link.
@@ -60,6 +61,7 @@ export default function ForgotPasswordPage() {
             Back to log in
           </Link>
         </p>
+        </div>
       </div>
     </div>
   );

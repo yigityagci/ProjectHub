@@ -15,9 +15,13 @@ FROM base AS build
 ARG VITE_API_URL=http://localhost:4000
 ENV VITE_API_URL=${VITE_API_URL}
 
-COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages/shared ./packages/shared
 COPY apps/web ./apps/web
+# Sibling workspace member's package.json only (never its source) — see
+# apps/api/Dockerfile's identical comment for why this is required now
+# that apps/mail-control is a third workspace member.
+COPY apps/mail-control/package.json ./apps/mail-control/package.json
 RUN pnpm install --frozen-lockfile --filter @projecthub/shared --filter @projecthub/web
 RUN pnpm --filter @projecthub/shared run build
 RUN pnpm --filter @projecthub/web run build

@@ -174,6 +174,7 @@ model User {
   usedRegistrationTokens    RegistrationToken[] @relation("RegistrationTokenUsedBy")
   auditLogEntries     AuditLogEntry[]
   platformEmailConfigUpdates PlatformEmailConfig[] @relation("PlatformEmailConfigUpdatedBy")
+  platformPostfixConfigUpdates PlatformPostfixConfig[] @relation("PlatformPostfixConfigUpdatedBy")
 
   ownedProjects       Project[]            @relation("ProjectOwner")
   projectMemberships  ProjectMembership[]
@@ -1000,4 +1001,55 @@ model PlatformEmailConfig {
   updatedAt          DateTime     @updatedAt
 
   @@map("platform_email_configs")
+}
+
+/// Instance-wide self-hosted Postfix mail-delivery configuration. Same
+/// single-row-singleton shape as PlatformEmailConfig (see that model's doc
+/// comment) — a hand-written CHECK constraint pins id = 'singleton'.
+///
+/// Mode is DERIVED, never a stored enum: `enabled ? "postfix" : "smtp"`. An
+/// absent row, or a row with enabled = false, means "external SMTP mode" —
+/// identical to today's exact behavior, so there is zero backfill risk for
+/// existing installations. See email/postfix-config.service.ts.
+///
+/// The sender address is ALWAYS derived as `no-reply@<sendingDomain>` and is
+/// never stored/editable separately — see PostfixConfigView.senderAddress.
+model PlatformPostfixConfig {
+  id                       String    @id @default("singleton")
+  enabled                  Boolean   @default(false)
+
+  sendingDomain            String
+  mailHostname             String
+  senderName               String    @default("ProjectHub")
+  replyToAddress           String?
+
+  dkimSelector             String    @default("projecthub")
+  dkimKeyBits              Int       @default(2048)
+  /// AES-256-GCM envelope via core/secret-box.ts (same primitive/key as
+  /// PlatformEmailConfig.passwordCiphertext). NEVER returned by any
+  /// serializer/log/response.
+  dkimPrivateKeyCiphertext String?
+  /// Base64 SPKI body for the DNS TXT record. Public by definition — safe
+  /// to serialize to the client.
+  dkimPublicKey            String?
+  dkimGeneratedAt          DateTime?
+  /// Signing stays off until the admin explicitly republishes DNS after a
+  /// key rotation — this is what prevents DKIM *failures* (as opposed to
+  /// just absent signing) from an unpublished/rotated key.
+  dkimSigningEnabled       Boolean   @default(false)
+
+  destinationRateDelaySeconds Int    @default(0)
+  destinationConcurrencyLimit Int    @default(20)
+  messageSizeLimitBytes        Int   @default(10485760)
+
+  lastAppliedAt            DateTime?
+  lastApplyOk              Boolean?
+  lastApplyError           String?
+
+  updatedById              String?
+  updatedBy                User?     @relation("PlatformPostfixConfigUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  @@map("platform_postfix_configs")
 }

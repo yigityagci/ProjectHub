@@ -27,6 +27,17 @@ export const pinoOptions: LoggerOptions = {
       "*.appSecret",
       "*.authorization",
       "*.cookie",
+      // Self-hosted Postfix control plane (see email/mail-control.client.ts)
+      // — the existing "*.token" path above is an EXACT key-name match in
+      // pino's redact syntax, not a substring match, so it does not catch a
+      // literal key named MAIL_CONTROL_TOKEN. DKIM private key material
+      // (PEM) must never be logged either.
+      "*.dkimPrivateKeyPem",
+      "*.privateKeyPem",
+      "*.dkimPrivateKeyCiphertext",
+      "*.MAIL_CONTROL_TOKEN",
+      "*.mailControlToken",
+      "*.bearer",
     ],
     censor: "[REDACTED]",
   },

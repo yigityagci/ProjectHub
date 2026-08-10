@@ -24,6 +24,15 @@ import { env } from "../config/env.js";
  * falls back to the dev console transport and logs a loud error), and the
  * admin must re-enter the secret. This is an accepted trade-off vs.
  * introducing a second required deployment secret solely for this purpose.
+ *
+ * NOTE: as of self-hosted Postfix mail delivery, this module also protects
+ * PlatformPostfixConfig.dkimPrivateKeyCiphertext (the DKIM RSA private
+ * key). HKDF_INFO below is deliberately left unchanged (still
+ * "projecthub:platform-email-config:v1") even though it now covers a
+ * second, unrelated secret type — changing it would make every existing
+ * stored SMTP password permanently undecryptable for every current
+ * installation. The string is a fixed key-derivation label, not a
+ * per-feature scope tag.
  */
 
 const HKDF_SALT = "projecthub-hkdf-salt-v1";

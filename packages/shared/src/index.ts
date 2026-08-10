@@ -19,3 +19,4 @@ export * from "./dto/attachment.js";
 export * from "./dto/activity.js";
 export * from "./dto/user.js";
 export * from "./dto/platform-email.js";
+export * from "./dto/postfix-mail.js";

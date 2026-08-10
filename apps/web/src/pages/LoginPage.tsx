@@ -34,8 +34,9 @@ export default function LoginPage({ onLoggedIn }: { onLoggedIn: (user: CurrentUs
 
   return (
     <div className="ph-shell ph-shell-auth">
-      <Brand />
-      <div className="ph-card">
+      <div className="ph-auth-box">
+        <Brand />
+        <div className="ph-card">
         <h1>Log in</h1>
         <p className="ph-subtitle">Access your ProjectHub workspaces.</p>
         {error && <div className="ph-alert ph-alert-error">{error}</div>}
@@ -82,6 +83,7 @@ export default function LoginPage({ onLoggedIn }: { onLoggedIn: (user: CurrentUs
             Don't have an account? Register
           </Link>
         </p>
+        </div>
       </div>
     </div>
   );

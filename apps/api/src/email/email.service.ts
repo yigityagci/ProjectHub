@@ -1,8 +1,11 @@
 import nodemailer, { type Transporter } from "nodemailer";
-import type { NotificationType } from "@projecthub/shared";
+import { HEADER_UNSAFE_RE, type NotificationType } from "@projecthub/shared";
 import { logger } from "../core/logger.js";
 import { decryptSecret } from "../core/secret-box.js";
+import { env } from "../config/env.js";
 import { getPlatformEmailConfigRow } from "./platform-email-config.service.js";
+import { getPostfixConfigRow } from "./postfix-config.service.js";
+import { renderBrandedEmail } from "./branded-template.js";
 
 export interface InvitationEmailInput {
   inviterName: string;
@@ -139,14 +142,19 @@ function buildTestEmail(): { subject: string; body: string } {
 interface ResolvedTransport {
   transporter: Transporter;
   from: string; // `"Name" <addr>` or bare addr
-  configUpdatedAtMs: number; // cache key
+  replyTo?: string;
+  cacheKey: string; // e.g. "smtp:<updatedAt ms>" or "postfix:<updatedAt ms>"
 }
 
-// Keyed on the config row's `updatedAt` rather than a plain
+// Keyed on a cache key derived from the active config row's `updatedAt`
+// (prefixed by which mode produced it) rather than a plain
 // invalidate-on-write flag, so every process (including future
 // multi-replica deployments) converges on its very next send with no
 // cross-process coordination needed — a pure in-memory invalidate-on-write
-// cache would be silently wrong under multi-process deployment.
+// cache would be silently wrong under multi-process deployment. The mode
+// prefix matters too: switching MODES must also invalidate the cache, since
+// a same-millisecond `updatedAt` collision across the two different config
+// tables would otherwise risk serving a stale transport from the wrong mode.
 let cached: ResolvedTransport | null = null;
 
 /** For same-process immediacy after a config write, and for test teardown. */
@@ -157,24 +165,90 @@ export function invalidateEmailTransportCache(): void {
   }
 }
 
+/**
+ * Builds a `"Name" <addr>` (or bare addr) From header value. `fromName` is
+ * validated at the write layer against HEADER_UNSAFE_RE (rejects quotes,
+ * angle brackets, CR/LF) for both PlatformEmailConfig.fromName and
+ * self-hosted PlatformPostfixConfig.senderName — this strip is deliberate
+ * belt-and-suspenders defense-in-depth on top of that, not the primary
+ * control, in case a value predates that validation or reaches this
+ * function via any other path in the future.
+ */
 function formatFrom(fromAddress: string, fromName: string | null): string {
-  return fromName ? `"${fromName}" <${fromAddress}>` : fromAddress;
+  if (!fromName) return fromAddress;
+  const safeName = fromName.replace(HEADER_UNSAFE_RE, "");
+  return safeName ? `"${safeName}" <${fromAddress}>` : fromAddress;
 }
 
 /**
- * Returns null when email is unconfigured, disabled, or undecryptable —
- * every one of these falls back to the dev console transport (see
- * deliverEmail), which is exactly the "app keeps working, mail just isn't
- * sent" behavior described in the product requirements.
+ * Mode-aware. Returns null when email is unconfigured/disabled (SMTP mode)
+ * or when self-hosted mode is enabled but not successfully applied/
+ * reachable — EVERY one of these falls back to the dev console transport
+ * (see deliverEmail), never to the other mode's relay path: sending from
+ * the wrong domain/credentials silently would be worse than not sending
+ * at all.
  */
 async function resolveTransport(): Promise<ResolvedTransport | null> {
+  const postfix = await getPostfixConfigRow();
+  if (postfix?.enabled) {
+    if (postfix.lastApplyOk !== true) {
+      logger.error(
+        { lastApplyError: postfix.lastApplyError },
+        "Self-hosted Postfix mode is enabled but its last apply did not succeed. " +
+          "Falling back to the dev console transport until the configuration is successfully re-applied.",
+      );
+      return null;
+    }
+    if (!env.MAIL_CONTROL_SMTP_HOST) {
+      logger.error(
+        {},
+        "Self-hosted Postfix mode is enabled but MAIL_CONTROL_SMTP_HOST is not set on this API instance. " +
+          "Falling back to the dev console transport.",
+      );
+      return null;
+    }
+
+    const cacheKey = `postfix:${postfix.updatedAt.getTime()}`;
+    if (cached && cached.cacheKey === cacheKey) {
+      return cached;
+    }
+    if (cached) {
+      cached.transporter.close();
+      cached = null;
+    }
+
+    try {
+      const transporter = nodemailer.createTransport({
+        host: env.MAIL_CONTROL_SMTP_HOST,
+        port: env.MAIL_CONTROL_SMTP_PORT,
+        secure: false,
+        ignoreTLS: true,
+      });
+
+      const resolved: ResolvedTransport = {
+        transporter,
+        from: formatFrom(`no-reply@${postfix.sendingDomain}`, postfix.senderName),
+        replyTo: postfix.replyToAddress ?? undefined,
+        cacheKey,
+      };
+      cached = resolved;
+      return resolved;
+    } catch (err) {
+      logger.error(
+        { err },
+        "Could not construct the self-hosted Postfix SMTP transport. Falling back to the dev console transport.",
+      );
+      return null;
+    }
+  }
+
   const row = await getPlatformEmailConfigRow();
   if (!row || !row.enabled) {
     return null;
   }
 
-  const configUpdatedAtMs = row.updatedAt.getTime();
-  if (cached && cached.configUpdatedAtMs === configUpdatedAtMs) {
+  const cacheKey = `smtp:${row.updatedAt.getTime()}`;
+  if (cached && cached.cacheKey === cacheKey) {
     return cached;
   }
 
@@ -216,7 +290,7 @@ async function resolveTransport(): Promise<ResolvedTransport | null> {
     const resolved: ResolvedTransport = {
       transporter,
       from: formatFrom(row.fromAddress, row.fromName),
-      configUpdatedAtMs,
+      cacheKey,
     };
     cached = resolved;
     return resolved;
@@ -266,11 +340,14 @@ async function deliverEmail(input: DeliverEmailInput): Promise<void> {
   }
 
   try {
+    const { html, text } = renderBrandedEmail({ subject: input.subject, body: input.body });
     await resolved.transporter.sendMail({
       from: resolved.from,
       to: input.to,
+      ...(resolved.replyTo ? { replyTo: resolved.replyTo } : {}),
       subject: input.subject,
-      text: input.body,
+      text,
+      html,
     });
     logger.info({ to: input.to, subject: input.subject }, "Email sent via SMTP transport");
   } catch (err) {

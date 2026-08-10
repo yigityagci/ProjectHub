@@ -10,7 +10,7 @@ import { ZodError } from "zod";
 import { env } from "./config/env.js";
 import { pinoOptions } from "./core/logger.js";
 import { redis } from "./core/redis.js";
-import { AppError } from "./core/errors.js";
+import { AppError, ValidationError } from "./core/errors.js";
 import { registerHealthRoutes } from "./core/health.js";
 import { registerOpenApi } from "./openapi.js";
 import { registerAuthRoutes } from "./auth/auth.routes.js";
@@ -18,6 +18,7 @@ import { registerAccountRoutes } from "./auth/account.routes.js";
 import { registerSetupRoutes } from "./auth/setup.routes.js";
 import { registerRegistrationTokenRoutes } from "./auth/registration-token.routes.js";
 import { registerPlatformEmailRoutes } from "./email/platform-email.routes.js";
+import { registerPostfixConfigRoutes } from "./email/postfix-config.routes.js";
 import { registerWorkspaceRoutes } from "./workspaces/workspaces.routes.js";
 import { registerMemberRoutes } from "./workspaces/members.routes.js";
 import { registerInvitationRoutes } from "./workspaces/invitations.routes.js";
@@ -80,8 +81,14 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   app.setErrorHandler((error: Error & { statusCode?: number }, req, reply) => {
     if (error instanceof AppError) {
+      const fieldErrors = error instanceof ValidationError ? error.fieldErrors : undefined;
       return reply.code(error.statusCode).send({
-        error: { code: error.code, message: error.message, requestId: req.id },
+        error: {
+          code: error.code,
+          message: error.message,
+          requestId: req.id,
+          ...(fieldErrors ? { fieldErrors } : {}),
+        },
       });
     }
 
@@ -132,6 +139,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await registerInvitationRoutes(app);
   await registerRegistrationTokenRoutes(app);
   await registerPlatformEmailRoutes(app);
+  await registerPostfixConfigRoutes(app);
   await registerProjectRoutes(app);
   await registerCategoryRoutes(app);
   await registerColumnRoutes(app);

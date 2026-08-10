@@ -8,6 +8,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-projecthub}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-to-a-strong-password}
       POSTGRES_DB: ${POSTGRES_DB:-projecthub}
+    ports:
+      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -19,6 +21,8 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    ports:
+      - "6379:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -42,6 +46,25 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://projecthub:change-me-to-a-strong-password@db:5432/projecthub}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      # --- Self-hosted Postfix control plane (optional) ---
+      # Reachable ONLY over the internal-only `mail-control` network below.
+      # Presence of these vars is also the API's primary signal that it's
+      # running under the shipped docker-compose stack (lets the settings
+      # UI hide/disable self-hosted mode elsewhere when they're absent —
+      # see apps/api/src/email/mail-control.client.ts#getSelfHostedAvailability).
+      # Deliberately still referenced even though the `postfix` service is
+      # opt-in (`profiles: ["postfix"]`, see below): when that profile
+      # isn't active, the API simply gets `unreachable` from its
+      # availability probe and reports self-hosted mode as unavailable
+      # with actionable copy, rather than failing mysteriously.
+      MAIL_CONTROL_URL: http://postfix:8025
+      MAIL_CONTROL_TOKEN: ${MAIL_CONTROL_TOKEN:?MAIL_CONTROL_TOKEN is required - see .env.example}
+      # Where system mail is SUBMITTED in self-hosted mode (separate from
+      # the control plane above: config changes go over HTTP to :8025,
+      # actual messages go over SMTP to :25, both on the same private
+      # network).
+      MAIL_CONTROL_SMTP_HOST: postfix
+      MAIL_CONTROL_SMTP_PORT: "25"
     ports:
       - "${PORT:-4000}:4000"
     volumes:
@@ -55,6 +78,14 @@ services:
       timeout: 5s
       retries: 10
       start_period: 15s
+    # Explicitly listed (not just implicit `default`) since we're adding a
+    # second network below. NO `depends_on: postfix` — a misconfigured or
+    # crash-looping self-hosted MTA must never block ProjectHub itself from
+    # booting; the availability probe already degrades gracefully when
+    # Postfix is absent/unreachable.
+    networks:
+      - default
+      - mail-control
 
   web:
     build:
@@ -78,7 +109,75 @@ services:
       retries: 10
       start_period: 10s
 
+  # Self-hosted Postfix + mail-control listener (see apps/mail-control).
+  # OPT-IN: `docker compose --profile postfix up -d`. Operators on the
+  # default/recommended External SMTP mode never run an MTA they don't
+  # need. When the profile is off, the API's availability probe reports
+  # `unreachable` and Settings > Mail Delivery disables the self-hosted
+  # option with actionable copy — see mail-control.client.ts.
+  postfix:
+    build:
+      context: .
+      dockerfile: apps/mail-control/Dockerfile
+    restart: unless-stopped
+    profiles: ["postfix"]
+    # DELIBERATELY no `env_file: .env` — unlike `api`, this container must
+    # never see APP_SECRET, DATABASE_URL, or any other unrelated secret.
+    environment:
+      MAIL_CONTROL_TOKEN: ${MAIL_CONTROL_TOKEN:?MAIL_CONTROL_TOKEN is required - see .env.example}
+      MAIL_CONTROL_PORT: "8025"
+      # Restricts Postfix's mynetworks to loopback + the control-plane
+      # subnet only. Together with `permit_mynetworks, reject` in
+      # main.cf.base, this is what prevents an open relay. Must match the
+      # `mail-control` network's subnet below — override both together if
+      # you ever need to change it.
+      POSTFIX_MYNETWORKS: "127.0.0.0/8 [::1]/128 172.31.240.0/24"
+    networks:
+      # Control plane: internal: true, shared ONLY with `api`. No external
+      # routing at all, no published port.
+      - mail-control
+      # Mail delivery: a normal bridge with outbound internet access for
+      # actual SMTP delivery. Deliberately NOT `default` — keeps a
+      # compromised MTA off the network Postgres/Redis are on.
+      - mail-egress
+    # NO `ports:` — nothing about this service is published to the host or
+    # the internet, including the control endpoint. NO `security_opt:
+    # no-new-privileges` either — Postfix's own master process needs
+    # setuid to spawn its unprivileged children, and this image's own
+    # narrow `sudo` escalation for the `mailctl` user would also be
+    # blocked by it (see apps/mail-control/Dockerfile's header comment).
+    volumes:
+      - postfix-spool:/var/spool/postfix
+      - postfix-config:/etc/postfix
+      - opendkim-keys:/etc/opendkim/keys
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8025/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+networks:
+  default:
+  mail-control:
+    # No gateway, no external/internet routing whatsoever. `api` keeps its
+    # normal egress via the `default` network — attaching a second,
+    # `internal: true` network to a service does not remove its existing
+    # default route, since internal networks never install one.
+    internal: true
+    ipam:
+      config:
+        # Explicit so POSTFIX_MYNETWORKS above is deterministic. Override
+        # both together (and the .env docs) if this collides with another
+        # network on your host.
+        - subnet: 172.31.240.0/24
+  mail-egress:
+    driver: bridge
+
 volumes:
   pgdata:
   redisdata:
   uploads:
+  postfix-spool:
+  postfix-config:
+  opendkim-keys:
