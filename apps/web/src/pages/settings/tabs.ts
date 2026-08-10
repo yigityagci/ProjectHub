@@ -6,6 +6,7 @@ import AppearanceTab from "./AppearanceTab.js";
 import LanguageRegionTab from "./LanguageRegionTab.js";
 import SecurityTab from "./SecurityTab.js";
 import SessionsTab from "./SessionsTab.js";
+import AgentTokensTab from "./AgentTokensTab.js";
 import AccessibilityTab from "./AccessibilityTab.js";
 import PersonalizationTab from "./PersonalizationTab.js";
 import ManageTeamTab from "./ManageTeamTab.js";
@@ -43,6 +44,7 @@ export const SETTINGS_TABS: SettingsTabDefinition[] = [
   { slug: "language", label: "Language & Region", component: LanguageRegionTab },
   { slug: "security", label: "Security", component: SecurityTab },
   { slug: "sessions", label: "Sessions", component: SessionsTab },
+  { slug: "agent-tokens", label: "AI Agent Tokens", component: AgentTokensTab },
   { slug: "accessibility", label: "Accessibility", component: AccessibilityTab },
   { slug: "personalization", label: "Personalization", component: PersonalizationTab },
   { slug: "manage-team", label: "Manage Team", component: ManageTeamTab, requiresManageTeam: true },

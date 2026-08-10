@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../lib/api.js";
 import { getSocket } from "../lib/socket.js";
 import { formatUserName } from "../lib/user-display.js";
@@ -13,7 +13,40 @@ export interface ActivityEvent {
   createdAt: string;
 }
 
-function describeActivityEvent(e: ActivityEvent): string {
+/**
+ * Actor-agnostic description of what happened — every case's wording is
+ * identical to what `describeActivityEvent` (pre-split) used to return minus
+ * the leading actor mention, so the non-agent rendering path below stays
+ * byte-for-byte unchanged.
+ */
+function describeActivityAction(e: ActivityEvent): string {
+  switch (e.type) {
+    case "task_created":
+      return `created task "${e.payload.taskTitle ?? ""}"`;
+    case "task_moved":
+      return `moved "${e.payload.taskTitle ?? ""}" from ${e.payload.fromColumnName ?? "?"} to ${e.payload.toColumnName ?? "?"}`;
+    case "task_assigned":
+      return `assigned "${e.payload.taskTitle ?? ""}" to ${e.payload.assigneeDisplayName ?? "someone"}`;
+    case "comment_added":
+      return `commented on "${e.payload.taskTitle ?? ""}"`;
+    case "milestone_completed":
+      return `completed milestone "${e.payload.milestoneName ?? ""}"`;
+    default:
+      return "";
+  }
+}
+
+/**
+ * Composes the final displayed content for one activity event. When
+ * `payload.viaAgentLabel` is present, the action was performed by an
+ * MCP-connected AI client acting on behalf of the human actor — the human
+ * actor is always the responsible party (never the agent), so it's still
+ * named, just with the agent's label bolded and an explicit "via MCP"
+ * suffix. When absent, this renders byte-for-byte identical text to the
+ * pre-split `describeActivityEvent`'s plain-string output for every existing
+ * case — a purely additive change, no wording/structure regression.
+ */
+function renderActivityEvent(e: ActivityEvent): ReactNode {
   // `payload.actorDisplayName` is a frozen JSON snapshot (see
   // ActivityEvent.payload in schema.prisma), never re-resolved — the
   // "(deleted account)" suffix is applied here from the live `actorIsDeleted`
@@ -21,20 +54,21 @@ function describeActivityEvent(e: ActivityEvent): string {
   // anything inside the payload itself.
   const rawActor = (e.payload.actorDisplayName as string | undefined) ?? "Someone";
   const actor = formatUserName(rawActor, e.actorIsDeleted);
-  switch (e.type) {
-    case "task_created":
-      return `${actor} created task "${e.payload.taskTitle ?? ""}"`;
-    case "task_moved":
-      return `${actor} moved "${e.payload.taskTitle ?? ""}" from ${e.payload.fromColumnName ?? "?"} to ${e.payload.toColumnName ?? "?"}`;
-    case "task_assigned":
-      return `${actor} assigned "${e.payload.taskTitle ?? ""}" to ${e.payload.assigneeDisplayName ?? "someone"}`;
-    case "comment_added":
-      return `${actor} commented on "${e.payload.taskTitle ?? ""}"`;
-    case "milestone_completed":
-      return `${actor} completed milestone "${e.payload.milestoneName ?? ""}"`;
-    default:
-      return "Activity";
+  const action = describeActivityAction(e);
+  if (!action) return "Activity";
+
+  // Present only when the action was performed via an MCP tool call using an
+  // agent token (see agent-token.service.ts) — the human actor above is
+  // always the responsible party, never the agent, so it's still named here.
+  const viaAgentLabel = e.payload?.viaAgentLabel as string | undefined;
+  if (viaAgentLabel) {
+    return (
+      <>
+        <strong>{viaAgentLabel}</strong> {action} on behalf of {actor} via MCP
+      </>
+    );
   }
+  return `${actor} ${action}`;
 }
 
 /**
@@ -83,7 +117,7 @@ export default function ActivityFeed({ workspaceId, projectId }: { workspaceId: 
         <ul className="ph-activity-list">
           {events.map((e) => (
             <li key={e.id}>
-              {describeActivityEvent(e)}
+              {renderActivityEvent(e)}
               <span className="ph-activity-time">{new Date(e.createdAt).toLocaleString()}</span>
             </li>
           ))}
