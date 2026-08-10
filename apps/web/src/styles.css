@@ -2326,3 +2326,57 @@ select:disabled {
     flex-basis: 82vw;
   }
 }
+
+/* Mail Delivery panel (Settings > ProjectHub Administration): self-hosted
+   Postfix's mode switcher radio-cards (see AppearanceTab.tsx's identical
+   <label><input type="radio">...</label> structure, reused here verbatim
+   apart from the trailing .ph-badge and disabled-card treatment) and the
+   small monospace caption pairing a rate-limit field's plain-language
+   label with the real underlying Postfix parameter name (e.g.
+   smtp_destination_rate_delay) — also reused for the DKIM DNS record name
+   and similar raw-value captions elsewhere in this panel. */
+.ph-mail-mode-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--ph-border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.ph-mail-mode-card:hover {
+  border-color: var(--ph-primary);
+}
+
+.ph-mail-mode-card.ph-mail-mode-card-selected {
+  border-color: var(--ph-primary);
+  background: var(--ph-hover-tint);
+}
+
+.ph-mail-mode-card.ph-mail-mode-card-disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ph-mail-mode-card.ph-mail-mode-card-disabled:hover {
+  border-color: var(--ph-border);
+}
+
+.ph-mono-caption {
+  display: block;
+  margin-top: 0.3rem;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.72rem;
+  color: var(--ph-muted);
+}
+
+/* Self-hosted Postfix service-status process badges (running/stopped/
+   error) — "error" needs its own named variant distinct from
+   .ph-badge-private (same red token, but that class's name is specific to
+   the private-project badge use case elsewhere). */
+.ph-badge-error {
+  background: rgba(220, 38, 38, 0.12);
+  color: var(--ph-error);
+}
