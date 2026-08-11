@@ -69,7 +69,17 @@ import { AppError, ValidationError } from "../core/errors.js";
 const MAX_RESPONSE_BYTES = 65536;
 
 const TIMEOUTS_MS = {
-  status: 5000,
+  // 7000, not 5000: /v1/status's handler runs the listener's own outbound
+  // port-25 reachability probe inline (see mail-control/src/postfix.ts's
+  // checkOutboundSmtp), cached for 60s but on every cache miss bounded by
+  // one OUTBOUND_SMTP_PROBE_TIMEOUT_MS (5000ms, all targets probed in
+  // parallel). A client timeout numerically equal to that server-side
+  // worst case has no margin for network/processing overhead, so every
+  // cache-cold status check would lose the race and report "unreachable"
+  // even when Postfix and the listener are both genuinely healthy --
+  // confirmed live against a real running self-hosted stack. 7000ms gives
+  // the 5000ms worst case real room to actually complete and be returned.
+  status: 7000,
   queue: 5000,
   validate: 5000,
   sendTestEmail: 15000,

@@ -1,6 +1,7 @@
 import { execFile as execFileCb, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs/promises";
+import path from "node:path";
 import net from "node:net";
 import { EXEC_TIMEOUT_MS, EXEC_MAX_BUFFER_BYTES, SAFE_EXEC_PATH, OUTBOUND_SMTP_PROBE_TARGETS, OUTBOUND_SMTP_PROBE_TIMEOUT_MS, OUTBOUND_SMTP_PROBE_CACHE_MS, QUEUE_CACHE_MS, QUEUE_MAX_ENTRIES, QUEUE_MAX_RECENT_ERRORS } from "./config.js";
 import type { ValidatedConfigPayload } from "./validate.js";
@@ -48,9 +49,19 @@ const MAIN_CF = `${LIVE_DIR}/main.cf`;
 const MAIN_CF_BACKUP = `${LIVE_DIR}/main.cf.bak`;
 const STAGING_MAIN_CF = `${STAGING_DIR}/main.cf`;
 
-/** Step 1 (see class-level pipeline doc in index.ts): copy /etc/postfix -> a fresh staging directory. No shell globbing/rm -rf string — fs.promises APIs only. */
+/**
+ * Step 1 (see class-level pipeline doc in index.ts): copy /etc/postfix ->
+ * a fresh staging directory. Clears the staging directory's CONTENTS,
+ * never removes the directory node itself: /etc/postfix.staging is
+ * pre-created at image build time with group=postfix + setgid (see
+ * Dockerfile) so the unprivileged `mailctl` user can write there without
+ * sudo — `rm`-ing the node itself would require write access to `/etc`
+ * (root-owned, mode 755) to recreate it, throwing EACCES. No shell
+ * globbing/rm -rf string — fs.promises APIs only.
+ */
 export async function stageConfigDir(): Promise<void> {
-  await fs.rm(STAGING_DIR, { recursive: true, force: true });
+  const entries = await fs.readdir(STAGING_DIR);
+  await Promise.all(entries.map((entry) => fs.rm(path.join(STAGING_DIR, entry), { recursive: true, force: true })));
   await fs.cp(LIVE_DIR, STAGING_DIR, { recursive: true });
 }
 
@@ -242,38 +253,50 @@ function probeOneTarget(host: string, port: number, timeoutMs: number): Promise<
  * warning surfaced to the admin, never treated as a hard verdict (many
  * networks/hosts legitimately block outbound 25 from *this* probe path
  * while still delivering mail fine via the target MX's actual policies).
+ *
+ * Targets are probed in PARALLEL, not sequentially: this is a "try until
+ * one succeeds" check, so the worst case (every target unreachable) must
+ * stay bounded by a single OUTBOUND_SMTP_PROBE_TIMEOUT_MS regardless of
+ * how many targets exist. A sequential for-loop here previously made the
+ * worst case `targets.length * OUTBOUND_SMTP_PROBE_TIMEOUT_MS` (10s for
+ * today's 2 targets) -- confirmed live against a real self-hosted stack
+ * with no outbound port-25 route, where this endpoint is embedded in
+ * /v1/status and consistently exceeded the API client's read timeout,
+ * making a perfectly healthy Postfix+listener permanently report as
+ * "unreachable" in the admin settings UI.
  */
 export async function checkOutboundSmtp(now = Date.now()): Promise<OutboundSmtpProbeResult> {
   if (outboundProbeCache && outboundProbeCache.expiresAt > now) {
     return outboundProbeCache.value;
   }
 
-  for (const { host, port } of OUTBOUND_SMTP_PROBE_TARGETS) {
-    const latencyMs = await probeOneTarget(host, port, OUTBOUND_SMTP_PROBE_TIMEOUT_MS);
-    if (latencyMs !== null) {
-      const value: OutboundSmtpProbeResult = {
+  const attempts = await Promise.all(
+    OUTBOUND_SMTP_PROBE_TARGETS.map(async (target) => ({
+      ...target,
+      latencyMs: await probeOneTarget(target.host, target.port, OUTBOUND_SMTP_PROBE_TIMEOUT_MS),
+    })),
+  );
+  const reached = attempts.find((attempt) => attempt.latencyMs !== null);
+
+  const value: OutboundSmtpProbeResult = reached
+    ? {
         checked: true,
         reachable: true,
-        target: `${host}:${port}`,
-        latencyMs,
+        target: `${reached.host}:${reached.port}`,
+        latencyMs: reached.latencyMs,
         error: null,
         bestEffort: true,
         checkedAt: new Date(now).toISOString(),
+      }
+    : {
+        checked: true,
+        reachable: false,
+        target: null,
+        latencyMs: null,
+        error: "Could not reach any outbound SMTP probe target on port 25.",
+        bestEffort: true,
+        checkedAt: new Date(now).toISOString(),
       };
-      outboundProbeCache = { value, expiresAt: now + OUTBOUND_SMTP_PROBE_CACHE_MS };
-      return value;
-    }
-  }
-
-  const value: OutboundSmtpProbeResult = {
-    checked: true,
-    reachable: false,
-    target: null,
-    latencyMs: null,
-    error: "Could not reach any outbound SMTP probe target on port 25.",
-    bestEffort: true,
-    checkedAt: new Date(now).toISOString(),
-  };
   outboundProbeCache = { value, expiresAt: now + OUTBOUND_SMTP_PROBE_CACHE_MS };
   return value;
 }

@@ -103,6 +103,17 @@ RUN chgrp -R postfix /etc/postfix \
   && chmod -R g+w /etc/postfix \
   && find /etc/postfix -type d -exec chmod g+s {} \;
 
+# /etc/postfix.staging (src/postfix.ts's STAGING_DIR) needs the SAME
+# treatment, pre-created here rather than left for stageConfigDir() to
+# `mkdir` at runtime: `/etc` itself is root-owned 755, so mailctl (a
+# non-root user, not in a group that owns /etc) gets EACCES trying to
+# create a new entry directly under it. stageConfigDir() below is written
+# to only ever clear this directory's *contents*, never remove the node
+# itself, so this one-time ownership grant survives every later apply.
+RUN mkdir -p /etc/postfix.staging \
+  && chgrp postfix /etc/postfix.staging \
+  && chmod g+ws /etc/postfix.staging
+
 # opendkim's own key directory: group-owned + setgid so DKIM key files
 # mailctl writes are group-readable by the opendkim daemon (see
 # src/opendkim.ts's doc comment on the 0640/group-permission design).

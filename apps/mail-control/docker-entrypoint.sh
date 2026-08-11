@@ -30,6 +30,19 @@ if [ -f /etc/postfix/main.cf.base ]; then
 fi
 
 # --- 2. Directory ownership / permissions ---------------------------------
+# /etc/postfix itself needs this reasserted every boot, not just baked in
+# at build time: it's the SAME named volume discussed in step 1 above, and
+# separately, `postconf -e` (root-run, just above) rewrites main.cf with
+# default (group-unwritable) permissions on every boot regardless of what
+# the volume started with -- confirmed live: main.cf ended up `644` while
+# every sibling config file stayed the intended `664`, so the unprivileged
+# `mailctl` user's own writes (config apply's staging-then-commit copy)
+# threw EACCES specifically on main.cf, the one file postconf just touched.
+mkdir -p /etc/postfix.staging
+chgrp -R postfix /etc/postfix /etc/postfix.staging
+chmod -R g+w /etc/postfix /etc/postfix.staging
+find /etc/postfix /etc/postfix.staging -type d -exec chmod g+s {} \;
+
 mkdir -p /var/spool/postfix
 chown -R postfix:postfix /var/spool/postfix
 
