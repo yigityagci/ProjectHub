@@ -23,6 +23,16 @@ const envSchema = z
     RATE_LIMIT_LOGIN_WINDOW_MINUTES: z.coerce.number().positive().default(15),
     RATE_LIMIT_GLOBAL_MAX: z.coerce.number().positive().default(300),
     RATE_LIMIT_GLOBAL_WINDOW_MINUTES: z.coerce.number().positive().default(1),
+    // Per-agent-token budget for POST /api/mcp (see mcp/mcp.routes.ts).
+    // Deliberately its own env var, not a reuse of RATE_LIMIT_LOGIN_MAX:
+    // that limit is tuned to slow down password-guessing (10 attempts per
+    // 15 minutes) and is far too tight for a legitimate AI agent's normal
+    // tool-call cadence -- a single multi-step task (e.g. create a task,
+    // then comment on it) can easily exceed 10 calls well within 15
+    // minutes. 120/minute mirrors the original per-token budget this
+    // endpoint was designed around.
+    RATE_LIMIT_MCP_MAX: z.coerce.number().positive().default(120),
+    RATE_LIMIT_MCP_WINDOW_MINUTES: z.coerce.number().positive().default(1),
     INVITE_TTL_HOURS: z.coerce.number().positive().default(24 * 7),
     // Password reset links are a bearer credential to full account
     // takeover if leaked, so their TTL is deliberately much shorter than

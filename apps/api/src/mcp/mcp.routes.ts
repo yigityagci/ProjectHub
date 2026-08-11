@@ -55,12 +55,14 @@ async function requireAllowedMcpOrigin(req: FastifyRequest, _reply: FastifyReply
  * to run), so it hashes the raw `Authorization` header value itself. This
  * prevents one shared egress IP (many users behind the same NAT/proxy) from
  * letting a single compromised token exhaust every other user's budget, and
- * vice versa. Reuses the login rate limit's numeric envelope rather than
- * inventing a dedicated env var for v1.
+ * vice versa. Uses its own dedicated env var (RATE_LIMIT_MCP_MAX/WINDOW) —
+ * a stress test showed reusing RATE_LIMIT_LOGIN_MAX (10 per 15 minutes,
+ * tuned to slow down password-guessing) throttled a legitimate AI agent
+ * into uselessness after 10 tool calls.
  */
 const MCP_RATE_LIMIT = {
-  max: env.RATE_LIMIT_LOGIN_MAX,
-  timeWindow: `${env.RATE_LIMIT_LOGIN_WINDOW_MINUTES} minutes`,
+  max: env.RATE_LIMIT_MCP_MAX,
+  timeWindow: `${env.RATE_LIMIT_MCP_WINDOW_MINUTES} minutes`,
   keyGenerator: (req: FastifyRequest): string => {
     const header = req.headers.authorization;
     if (typeof header === "string" && header.length > 0) {
