@@ -8,8 +8,15 @@ import { hashPassword } from "../src/auth/password.js";
 import { createWorkspace } from "../src/workspaces/workspaces.service.js";
 import { generateRegistrationToken } from "../src/auth/registration-token.service.js";
 
-export async function createTestApp(): Promise<FastifyInstance> {
-  const app = await buildServer();
+/**
+ * The scheduler is stopped by default (see server.ts#BuildServerOptions) --
+ * tests that specifically exercise scheduler/handler behavior (recurring
+ * tasks, due-date reminders, the scheduler module's own contract) drive it
+ * manually via runOnce()/register(), or opt back into the real interval
+ * with `createTestApp({ startScheduler: true })`.
+ */
+export async function createTestApp(options: { startScheduler?: boolean } = {}): Promise<FastifyInstance> {
+  const app = await buildServer({ startScheduler: options.startScheduler ?? false });
   await app.ready();
   return app;
 }

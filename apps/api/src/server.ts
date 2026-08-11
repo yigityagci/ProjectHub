@@ -42,7 +42,25 @@ import { initScheduler } from "./core/scheduler.js";
 import { recurringTasksHandler } from "./projects/recurrence.service.js";
 import { dueDateReminderHandler } from "./notifications/due-date-reminder.service.js";
 
-export async function buildServer(): Promise<FastifyInstance> {
+export interface BuildServerOptions {
+  /**
+   * Whether the shared scheduler's polling interval should actually be
+   * running once buildServer() returns. Defaults to true (production/dev
+   * behavior, unchanged) -- test/helpers.ts's createTestApp() is the only
+   * caller that passes false, since a ~30-40ms-interval scheduler with real
+   * DB-querying handlers (recurring tasks, due-date reminders) left running
+   * for the lifetime of every one of the ~38 test files that build a server
+   * -- even the ones that never touch scheduling at all -- was racing
+   * resetDatabase()'s TRUNCATE ... CASCADE between tests and occasionally
+   * deadlocking Postgres, producing sporadic, hard-to-reproduce test
+   * failures unrelated to whatever the failing test actually covered.
+   * scheduler.test.ts (which specifically tests initScheduler/getScheduler's
+   * own contract) opts back in with `{ startScheduler: true }`.
+   */
+  startScheduler?: boolean;
+}
+
+export async function buildServer(options: BuildServerOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({
     logger: pinoOptions,
     trustProxy: true,
@@ -159,7 +177,10 @@ export async function buildServer(): Promise<FastifyInstance> {
   await registerMcpRoutes(app);
 
   initRealtime(app);
-  initScheduler(app, { handlers: [recurringTasksHandler, dueDateReminderHandler] });
+  const scheduler = initScheduler(app, { handlers: [recurringTasksHandler, dueDateReminderHandler] });
+  if (options.startScheduler === false) {
+    await scheduler.stop();
+  }
 
   return app;
 }

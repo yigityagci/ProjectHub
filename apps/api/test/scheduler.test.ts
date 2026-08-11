@@ -241,7 +241,7 @@ describe("core/scheduler.ts", () => {
     });
 
     it("the buildServer()-created scheduler is genuinely live end to end", async () => {
-      const app = await createTestApp();
+      const app = await createTestApp({ startScheduler: true });
       try {
         const live = getScheduler();
         expect(live).not.toBeNull();
@@ -320,7 +320,7 @@ describe("core/scheduler.ts", () => {
 
   describe("onClose teardown actually stops the interval", () => {
     it("closing the app stops the scheduler for good", async () => {
-      const app = await createTestApp();
+      const app = await createTestApp({ startScheduler: true });
       const s = getScheduler()!;
       expect(s).toBeTruthy();
 
@@ -350,7 +350,7 @@ describe("core/scheduler.ts", () => {
       const activeTimersBefore = process.getActiveResourcesInfo().filter((r) => r === "Timeout").length;
 
       // Cycle 1.
-      const app1 = await createTestApp();
+      const app1 = await createTestApp({ startScheduler: true });
       let count1 = 0;
       getScheduler()!.register({ name: "cycle-1-counter", run: async () => { count1++; } });
       await waitUntil(() => count1 > 0);
@@ -363,7 +363,7 @@ describe("core/scheduler.ts", () => {
       // cycle 1's already-closed instance; safe under this file's
       // fileParallelism:false + per-file module isolation, per
       // vitest.config.ts).
-      const app2 = await createTestApp();
+      const app2 = await createTestApp({ startScheduler: true });
       let count2 = 0;
       getScheduler()!.register({ name: "cycle-2-counter", run: async () => { count2++; } });
       await waitUntil(() => count2 > 0);
