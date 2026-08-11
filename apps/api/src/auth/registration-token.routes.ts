@@ -71,7 +71,12 @@ export async function registerRegistrationTokenRoutes(app: FastifyInstance): Pro
   app.get(
     "/api/workspaces/:workspaceId/registration-tokens",
     {
-      preHandler: [requireAuth, requireMembership, requirePermission("registration_token.manage")],
+      preHandler: [
+        requireAuth,
+        requireSessionAuth,
+        requireMembership,
+        requirePermission("registration_token.manage"),
+      ],
     },
     async (req, reply) => {
       const registrationTokens = await listRegistrationTokens(req.ctx.workspace!.id);
