@@ -107,7 +107,9 @@ export default function App() {
       <Route
         path="/login"
         element={
-          user ? (
+          needsSetup ? (
+            <Navigate to="/setup" replace />
+          ) : user ? (
             // Post-login (and any other fresh-authenticated hit on
             // /login) lands on the user's chosen default landing page
             // rather than unconditionally the workspaces list — see
@@ -120,7 +122,15 @@ export default function App() {
       />
       <Route
         path="/register"
-        element={user ? <Navigate to="/" replace /> : <RegisterPage />}
+        element={
+          needsSetup ? (
+            <Navigate to="/setup" replace />
+          ) : user ? (
+            <Navigate to="/" replace />
+          ) : (
+            <RegisterPage />
+          )
+        }
       />
       <Route path="/invite/accept" element={<InviteAcceptPage user={user} />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
