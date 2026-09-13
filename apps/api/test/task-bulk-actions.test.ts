@@ -354,6 +354,26 @@ describe("Bulk task actions", () => {
     expect(outResult.task.completedAt).toBeNull();
   });
 
+  it("bulk delete records one task_deleted activity event per directly-selected task", async () => {
+    const a = await createTask("Bulk Deleted A");
+    const b = await createTask("Bulk Deleted B");
+
+    const res = await owner.post(bulkUrl(), {
+      action: "delete",
+      taskIds: [a.id, b.id],
+    });
+    expect(res.statusCode).toBe(200);
+
+    const activityRes = await owner.get(`/api/workspaces/${workspaceId}/projects/${projectId}/activity`);
+    const events = activityRes.json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    const deletedForA = events.find((e) => e.type === "task_deleted" && e.payload.taskId === a.id);
+    const deletedForB = events.find((e) => e.type === "task_deleted" && e.payload.taskId === b.id);
+    expect(deletedForA).toBeTruthy();
+    expect(deletedForA?.payload.taskTitle).toBe("Bulk Deleted A");
+    expect(deletedForA?.payload.columnId).toBe(a.columnId);
+    expect(deletedForB).toBeTruthy();
+  });
+
   it("delete cascade: deleting a parent whose subtask was NOT selected removes the subtask too", async () => {
     const parent = await createTask("Cascade Parent");
     const subtaskRes = await owner.post(

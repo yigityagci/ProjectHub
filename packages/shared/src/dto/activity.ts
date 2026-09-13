@@ -11,6 +11,8 @@ export const ACTIVITY_EVENT_TYPES = [
   "task_created",
   "task_moved",
   "task_assigned",
+  "task_completed",
+  "task_deleted",
   "comment_added",
   "milestone_completed",
 ] as const;
@@ -18,12 +20,16 @@ export type ActivityEventType = (typeof ACTIVITY_EVENT_TYPES)[number];
 
 /**
  * Query params for GET .../activity. Cursor-based (most-recent-first):
- * `cursor` is the `id` of the last event on the previous page.
+ * `cursor` is the `id` of the last event on the previous page. `categoryId`
+ * narrows the feed to a single category's events (e.g. a board's per-column
+ * History panel) — still access-checked against the caller's visible
+ * categories server-side, never a bypass of that filter.
  */
 export const activityListQuerySchema = z
   .object({
     limit: z.coerce.number().int().min(1).max(100).optional().default(20),
     cursor: z.string().min(1).optional(),
+    categoryId: z.string().min(1).optional(),
   })
   .strict();
 export type ActivityListQuery = z.infer<typeof activityListQuerySchema>;

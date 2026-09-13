@@ -29,10 +29,11 @@ export async function registerActivityRoutes(app: FastifyInstance): Promise<void
         throw new ValidationError(parsed.error.issues[0]?.message ?? "Invalid input.");
       }
       const roleKey = req.ctx.membership!.role.key as RoleKey;
-      const result = await listActivityEvents(req.ctx.project!.id, parsed.data, {
-        userId: req.ctx.user!.id,
-        roleKey,
-      });
+      const result = await listActivityEvents(
+        req.ctx.project!.id,
+        { limit: parsed.data.limit, cursor: parsed.data.cursor, categoryId: parsed.data.categoryId },
+        { userId: req.ctx.user!.id, roleKey },
+      );
       return reply.send(result);
     },
   );

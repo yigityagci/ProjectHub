@@ -234,6 +234,7 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
         req.ctx.category!.id,
         taskId,
         parsed.data,
+        { id: req.ctx.user!.id, displayName: req.ctx.user!.displayName },
       );
 
       if (result.conflict) {
@@ -314,7 +315,10 @@ export async function registerTaskRoutes(app: FastifyInstance): Promise<void> {
     },
     async (req, reply) => {
       const { taskId } = req.params as { taskId: string };
-      await deleteTask(req.ctx.workspace!.id, req.ctx.category!.id, taskId);
+      await deleteTask(req.ctx.workspace!.id, req.ctx.project!.id, req.ctx.category!.id, taskId, {
+        id: req.ctx.user!.id,
+        displayName: req.ctx.user!.displayName,
+      });
       emitToCategory(req.ctx.category!.id, "task.deleted", { id: taskId });
       return reply.send({ ok: true });
     },

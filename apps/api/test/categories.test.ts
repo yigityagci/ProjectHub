@@ -116,6 +116,29 @@ describe("Categories: CRUD, invariants, and membership", () => {
     expect(invalidRes.statusCode).toBe(422);
   });
 
+  it("rejects creating a second done-category column on the same board", async () => {
+    const res = await owner.post(
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${firstCategoryId}/columns`,
+      { name: "Deployed", category: "done" },
+    );
+    expect(res.statusCode).toBe(409);
+  });
+
+  it("rejects renaming a column's category to done when the board already has one", async () => {
+    const createRes = await owner.post(
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${firstCategoryId}/columns`,
+      { name: "Blocked", category: "todo" },
+    );
+    expect(createRes.statusCode).toBe(201);
+    const columnId = createRes.json().column.id;
+
+    const updateRes = await owner.patch(
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${firstCategoryId}/columns/${columnId}`,
+      { category: "done" },
+    );
+    expect(updateRes.statusCode).toBe(409);
+  });
+
   it("rejects a duplicate category name within the same project", async () => {
     const res = await owner.post(`/api/workspaces/${workspaceId}/projects/${projectId}/categories`, {
       name: "Engineering",

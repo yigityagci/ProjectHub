@@ -81,6 +81,50 @@ describe("Phase 5/6: activity feed + analytics", () => {
     expect(created).toBeTruthy();
     expect(created?.payload.taskTitle).toBe("Write the release notes");
     expect(created?.payload.actorDisplayName).toBeTruthy();
+    expect(created?.payload.columnId).toBe(todoColumnId);
+  });
+
+  it("deleting a task records a task_deleted activity event", async () => {
+    const taskRes = await owner.post(`/api/workspaces/${w1Id}/projects/${projectId}/categories/${categoryId}/tasks`, {
+      title: "Task to be deleted",
+      columnId: todoColumnId,
+    });
+    const taskId = taskRes.json().task.id;
+
+    const deleteRes = await owner.delete(
+      `/api/workspaces/${w1Id}/projects/${projectId}/categories/${categoryId}/tasks/${taskId}`,
+    );
+    expect(deleteRes.statusCode).toBe(200);
+
+    const activityRes = await owner.get(`/api/workspaces/${w1Id}/projects/${projectId}/activity`);
+    const events = activityRes.json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    const deleted = events.find((e) => e.type === "task_deleted" && e.payload.taskId === taskId);
+    expect(deleted).toBeTruthy();
+    expect(deleted?.payload.taskTitle).toBe("Task to be deleted");
+    expect(deleted?.payload.columnId).toBe(todoColumnId);
+    expect(deleted?.payload.actorDisplayName).toBeTruthy();
+  });
+
+  it("the activity feed can be narrowed to a single category via ?categoryId=", async () => {
+    const secondCategory = await createCategoryAs(owner, w1Id, projectId, "Second Category");
+
+    const taskInFirst = await owner.post(
+      `/api/workspaces/${w1Id}/projects/${projectId}/categories/${categoryId}/tasks`,
+      { title: "In the default category", columnId: todoColumnId },
+    );
+    const taskInSecond = await owner.post(
+      `/api/workspaces/${w1Id}/projects/${projectId}/categories/${secondCategory.id}/tasks`,
+      { title: "In the second category" },
+    );
+
+    const scopedRes = await owner.get(
+      `/api/workspaces/${w1Id}/projects/${projectId}/activity?categoryId=${categoryId}`,
+    );
+    expect(scopedRes.statusCode).toBe(200);
+    const events = scopedRes.json().events as Array<{ categoryId: string | null; payload: Record<string, unknown> }>;
+    expect(events.every((e) => e.categoryId === categoryId)).toBe(true);
+    expect(events.some((e) => e.payload.taskId === taskInFirst.json().task.id)).toBe(true);
+    expect(events.some((e) => e.payload.taskId === taskInSecond.json().task.id)).toBe(false);
   });
 
   it("moving a task to a different column records a task_moved activity event", async () => {
@@ -105,6 +149,53 @@ describe("Phase 5/6: activity feed + analytics", () => {
     expect(moved).toBeTruthy();
     expect(moved?.payload.fromColumnName).toBe("To Do");
     expect(moved?.payload.toColumnName).toBe("Done");
+  });
+
+  it("checking the completed checkbox records a task_completed activity event", async () => {
+    const taskRes = await owner.post(`/api/workspaces/${w1Id}/projects/${projectId}/categories/${categoryId}/tasks`, {
+      title: "Finish the changelog",
+      columnId: todoColumnId,
+    });
+    const task = taskRes.json().task;
+
+    const checkRes = await owner.patch(
+      `/api/workspaces/${w1Id}/projects/${projectId}/categories/${categoryId}/tasks/${task.id}`,
+      { version: task.version, completed: true },
+    );
+    expect(checkRes.statusCode).toBe(200);
+    expect(checkRes.json().task.columnId).toBe(doneColumnId);
+
+    const activityRes = await owner.get(`/api/workspaces/${w1Id}/projects/${projectId}/activity`);
+    const events = activityRes.json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    const completed = events.find((e) => e.type === "task_completed" && e.payload.taskId === task.id);
+    expect(completed).toBeTruthy();
+    expect(completed?.payload.taskTitle).toBe("Finish the changelog");
+    expect(completed?.payload.columnName).toBe("Done");
+    expect(completed?.payload.actorDisplayName).toBeTruthy();
+  });
+
+  it("unchecking the completed checkbox does NOT record another task_completed event", async () => {
+    const taskRes = await owner.post(`/api/workspaces/${w1Id}/projects/${projectId}/categories/${categoryId}/tasks`, {
+      title: "Toggle me",
+      columnId: todoColumnId,
+    });
+    const task = taskRes.json().task;
+
+    const checkRes = await owner.patch(
+      `/api/workspaces/${w1Id}/projects/${projectId}/categories/${categoryId}/tasks/${task.id}`,
+      { version: task.version, completed: true },
+    );
+    const checked = checkRes.json().task;
+
+    await owner.patch(`/api/workspaces/${w1Id}/projects/${projectId}/categories/${categoryId}/tasks/${task.id}`, {
+      version: checked.version,
+      completed: false,
+    });
+
+    const activityRes = await owner.get(`/api/workspaces/${w1Id}/projects/${projectId}/activity`);
+    const events = activityRes.json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    const completedEvents = events.filter((e) => e.type === "task_completed" && e.payload.taskId === task.id);
+    expect(completedEvents).toHaveLength(1);
   });
 
   it("moving a task within the same column does NOT record a task_moved event", async () => {
@@ -165,16 +256,15 @@ describe("Phase 5/6: activity feed + analytics", () => {
     expect(Array.isArray(analytics.recentActivity)).toBe(true);
   });
 
-  it("a task checked off via the completed checkbox (never dragged into a done-category column) is reflected in analytics", async () => {
+  it("a task checked off via the completed checkbox from the todo column is moved into the done column and reflected in analytics", async () => {
     const before = await owner.get(`/api/workspaces/${w1Id}/projects/${projectId}/analytics`);
     const beforeTotals = before.json().analytics.totals as { totalTasks: number; completedTasks: number };
 
-    // Deliberately created in — and left in — the todo column, so the only
-    // way this task can count as "completed" is via `completedAt`, never
-    // via a done-category column membership.
+    // Created in — and initially left in — the todo column, to confirm the
+    // checkbox itself (not a drag) is what moves it into the done column.
     const taskRes = await owner.post(
       `/api/workspaces/${w1Id}/projects/${projectId}/categories/${categoryId}/tasks`,
-      { title: "Checked off without ever touching Done", columnId: todoColumnId },
+      { title: "Checked off from the todo column", columnId: todoColumnId },
     );
     const task = taskRes.json().task;
     expect(task.columnId).toBe(todoColumnId);
@@ -186,8 +276,10 @@ describe("Phase 5/6: activity feed + analytics", () => {
     expect(checkRes.statusCode).toBe(200);
     const checked = checkRes.json().task;
     expect(checked.completedAt).not.toBeNull();
-    // Confirms the design decision: completion never moves the task's column.
-    expect(checked.columnId).toBe(todoColumnId);
+    expect(checked.completedById).toBeTruthy();
+    // Confirms the design decision: checking "mark as done" moves the task
+    // into the board's (single) done column.
+    expect(checked.columnId).toBe(doneColumnId);
 
     const after = await owner.get(`/api/workspaces/${w1Id}/projects/${projectId}/analytics`);
     const afterAnalytics = after.json().analytics;

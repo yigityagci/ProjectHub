@@ -335,7 +335,14 @@ const updateTaskTool: McpTool<z.infer<typeof updateTaskOuterArgsSchema>> = {
       return toolErrorResult(parsed.error.issues[0]?.message ?? "Invalid input.");
     }
 
-    const result = await updateTask(req.ctx.workspace!.id, req.ctx.project!.id, req.ctx.category!.id, taskId, parsed.data);
+    const result = await updateTask(
+      req.ctx.workspace!.id,
+      req.ctx.project!.id,
+      req.ctx.category!.id,
+      taskId,
+      parsed.data,
+      { id: req.ctx.user!.id, displayName: req.ctx.user!.displayName, via: actingAgent(req) },
+    );
 
     if (result.conflict) {
       throw new ToolFailure(

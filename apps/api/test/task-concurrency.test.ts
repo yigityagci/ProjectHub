@@ -107,16 +107,26 @@ describe("Optimistic concurrency on Task updates", () => {
     expect(validMove.json().task.columnId).toBe(inProgress.id);
   });
 
-  it("the completed checkbox round-trips through the same optimistic-concurrency PATCH path, without moving columns", async () => {
+  it("the completed checkbox round-trips through the same optimistic-concurrency PATCH path, and moves the task into the board's done column", async () => {
+    const columnsRes = await owner.get(
+      `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/columns`,
+    );
+    const doneColumn = (columnsRes.json().columns as Array<{ id: string; name: string }>).find(
+      (c) => c.name === "Done",
+    )!;
+
     const createRes = await owner.post(
       `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks`,
       { title: "Checkbox me" },
     );
     const created = createRes.json().task;
     expect(created.completedAt).toBeNull();
-    const originalColumnId = created.columnId;
+    expect(created.columnId).not.toBe(doneColumn.id);
+    const originColumnId = created.columnId;
 
-    // Checking it off sets completedAt and bumps version, but never touches columnId.
+    // Checking it off sets completedAt/completedById, bumps version, and
+    // moves the task into the board's (single) done column — remembering
+    // where it came from via completedFromColumnId.
     const checkRes = await owner.patch(
       `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks/${created.id}`,
       { version: created.version, completed: true },
@@ -124,7 +134,9 @@ describe("Optimistic concurrency on Task updates", () => {
     expect(checkRes.statusCode).toBe(200);
     const checked = checkRes.json().task;
     expect(checked.completedAt).not.toBeNull();
-    expect(checked.columnId).toBe(originalColumnId);
+    expect(checked.completedById).toBeTruthy();
+    expect(checked.columnId).toBe(doneColumn.id);
+    expect(checked.completedFromColumnId).toBe(originColumnId);
     expect(checked.version).toBe(created.version + 1);
 
     // A stale-version attempt still gets a 409, exactly like every other field.
@@ -136,13 +148,17 @@ describe("Optimistic concurrency on Task updates", () => {
     expect(staleRes.json().error.code).toBe("VERSION_CONFLICT");
     expect(staleRes.json().currentTask.completedAt).not.toBeNull();
 
-    // Reverting (uncheck) with the current version clears completedAt again.
+    // Reverting (uncheck) with the current version clears completedAt/
+    // completedById/completedFromColumnId AND moves the task back to the
+    // column it was completed from.
     const revertRes = await owner.patch(
       `/api/workspaces/${workspaceId}/projects/${projectId}/categories/${categoryId}/tasks/${created.id}`,
       { version: checked.version, completed: false },
     );
     expect(revertRes.statusCode).toBe(200);
     expect(revertRes.json().task.completedAt).toBeNull();
-    expect(revertRes.json().task.columnId).toBe(originalColumnId);
+    expect(revertRes.json().task.completedById).toBeNull();
+    expect(revertRes.json().task.completedFromColumnId).toBeNull();
+    expect(revertRes.json().task.columnId).toBe(originColumnId);
   });
 });

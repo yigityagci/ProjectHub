@@ -114,6 +114,8 @@ enum ActivityEventType {
   task_created
   task_moved
   task_assigned
+  task_completed
+  task_deleted
   comment_added
   milestone_completed
 }
@@ -181,6 +183,7 @@ model User {
   projectMemberships  ProjectMembership[]
   categoryMemberships CategoryMembership[]
   createdTasks        Task[]               @relation("TaskCreator")
+  completedTasks      Task[]               @relation("TaskCompletedBy")
   taskAssignments     TaskAssignee[]
 
   commentsAuthored    Comment[]       @relation("CommentAuthor")
@@ -557,6 +560,11 @@ model BoardColumn {
   updatedAt    DateTime       @updatedAt
 
   tasks Task[]
+  // Reverse side of Task.completedFromColumnId — every task that was marked
+  // done (and thereby relocated into the board's done column) while it was
+  // sitting in THIS column. Lets that history survive the task's own move to
+  // the done column: see Task.completedFromColumnId for the full rationale.
+  completedFromTasks Task[] @relation("TaskCompletedFromColumn")
 
   // Column names are unique within a category's own board now (not
   // project-wide) — a project can have multiple categories, each with its
@@ -647,11 +655,35 @@ model Task {
   // under its new due date rather than staying silenced forever.
   dueReminderSentAt DateTime?
   // Set the moment this task's column transitions into a `done`-category
-  // column (moveTask in tasks.service.ts), cleared if it's moved back out of
-  // done. Phase 6 analytics (completion-over-time, average completion time)
-  // depend entirely on this timestamp actually reflecting when work finished,
-  // not just `updatedAt` (which changes on every unrelated edit too).
+  // column (moveTask in tasks.service.ts) OR the "mark as done" checkbox is
+  // checked (updateTask — which, as of the one-Done-column-per-board change,
+  // also moves the task's columnId to that board's done column, so both
+  // paths converge on the same state), cleared if it's moved back out of
+  // done / unchecked. Phase 6 analytics (completion-over-time, average
+  // completion time) depend entirely on this timestamp actually reflecting
+  // when work finished, not just `updatedAt` (which changes on every
+  // unrelated edit too).
   completedAt  DateTime?
+  // Who actually checked/unchecked "mark as done" — null for tasks
+  // completed purely by being dragged into a done-category column (no
+  // discrete "mark as done" actor to attribute), and cleared back to null
+  // whenever completedAt is cleared. Denormalized onto Task the same way
+  // creatorId is, rather than requiring a join through ActivityEvent, since
+  // both the per-column History panel and any future "who completed this"
+  // display need it directly on the task.
+  completedById String?
+  completedBy   User?     @relation("TaskCompletedBy", fields: [completedById], references: [id])
+  // The column this task was sitting in the moment it was marked done (set
+  // by updateTask's checkbox path and moveTask's drag-into-done path alike),
+  // so the per-column History panel can attribute "X marked Y as done" to
+  // the column Y actually came from — not to the done column it was
+  // relocated to, which by design is the same single column for every
+  // completed task on the board and would otherwise make every other
+  // column's history permanently empty. Cleared back to null whenever
+  // completedAt is cleared (reverting also moves the task back here — see
+  // updateTask).
+  completedFromColumnId String?
+  completedFromColumn   BoardColumn? @relation("TaskCompletedFromColumn", fields: [completedFromColumnId], references: [id], onDelete: SetNull)
   version      Int          @default(1)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
@@ -670,6 +702,8 @@ model Task {
   @@index([parentTaskId])
   @@index([milestoneId])
   @@index([creatorId])
+  @@index([completedById])
+  @@index([completedFromColumnId])
   // The recurrence scheduler's claim query filters on nextRunAt <= now.
   @@index([nextRunAt])
   // The due-date-reminder scheduler's claim query filters on

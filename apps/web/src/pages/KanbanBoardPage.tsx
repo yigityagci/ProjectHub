@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   DndContext,
+  DragOverlay,
   closestCorners,
   PointerSensor,
   useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -32,6 +34,7 @@ import ThemeToggle from "../components/ThemeToggle.js";
 import SettingsGearLink from "../components/SettingsGearLink.js";
 import ActivityFeed from "../components/ActivityFeed.js";
 import { IconGrip, IconPencil, IconPlus, IconTrash } from "../components/Icons.js";
+import Select from "../components/Select.js";
 import { getStoredDefaultBoardView } from "../lib/personalization.js";
 import { formatUserName } from "../lib/user-display.js";
 import TaskDetailModal from "./TaskDetailModal.js";
@@ -44,6 +47,20 @@ interface ProjectLabel {
   id: string;
   name: string;
   color: string;
+}
+
+// Minimal shape of an ActivityEvent (see ActivityFeed.tsx) needed to surface
+// task creation/deletion in a column's History panel — completions are
+// derived straight from live `tasks` (see historyItemsByColumn below), but
+// creation and (especially) deletion have no live Task row to derive from,
+// so those two event types are fetched from the persisted activity log
+// instead.
+interface ColumnHistoryEvent {
+  id: string;
+  type: "task_created" | "task_deleted";
+  actorIsDeleted: boolean;
+  payload: { taskTitle?: string; columnId?: string; actorDisplayName?: string };
+  createdAt: string;
 }
 
 interface BoardColumn {
@@ -179,21 +196,6 @@ function TaskCard({
             onChange={(e) => onToggleSelect(task, e.target.checked)}
           />
         )}
-        {canToggleComplete && (
-          <input
-            type="checkbox"
-            className="ph-task-checkbox"
-            checked={false}
-            aria-label={`Mark "${task.title}" as done`}
-            title="Mark as done"
-            // Never let this bubble into the card's own drag/click handling —
-            // the checkbox is its own independent control, not the card-open
-            // trigger.
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-            onChange={() => onToggleComplete(task, true)}
-          />
-        )}
         <button type="button" className="ph-task-card-open" onClick={onOpen}>
           <div className="ph-task-card-title">{task.title}</div>
           <div className="ph-task-card-meta">
@@ -210,7 +212,66 @@ function TaskCard({
             )}
           </div>
         </button>
+        {canToggleComplete && (
+          <input
+            type="checkbox"
+            className="ph-task-checkbox ph-task-checkbox-complete"
+            checked={Boolean(task.completedAt)}
+            aria-label={task.completedAt ? `Mark "${task.title}" as not done` : `Mark "${task.title}" as done`}
+            title={task.completedAt ? "Mark as undone" : "Mark as done"}
+            // Never let this bubble into the card's own drag/click handling —
+            // the checkbox is its own independent control, not the card-open
+            // trigger.
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onChange={() => onToggleComplete(task, !task.completedAt)}
+          />
+        )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * A non-interactive visual clone of TaskCard, rendered only inside
+ * <DragOverlay> (see the DndContext below). This is what actually follows
+ * the cursor during a drag — dnd-kit's per-item `useSortable` transform on
+ * the real card only accounts for *sort displacement within its own list*,
+ * not cursor tracking, so without this overlay a drag looks like it "does
+ * nothing" until the drop (the real card only snaps to its new position
+ * once `handleDragEnd`'s state update lands). No checkboxes/buttons here —
+ * it's a read-only ghost, never itself interactive.
+ */
+function TaskCardPreview({ task }: { task: Task }) {
+  return (
+    <div className="ph-task-card ph-task-card-overlay">
+      <div className="ph-task-card-row">
+        <div className="ph-task-card-open">
+          <div className="ph-task-card-title">{task.title}</div>
+          <div className="ph-task-card-meta">
+            <span className={`ph-priority-dot ph-priority-${task.priority}`} />
+            {task.labels.map((l) => (
+              <span key={l.labelId} className="ph-label-chip" style={{ background: l.color }}>
+                {l.name}
+              </span>
+            ))}
+            {task.assignees.length > 0 && (
+              <span style={{ fontSize: "0.72rem", color: "var(--ph-muted)" }}>
+                {task.assignees.map((a) => formatUserName(a.displayName, a.isDeleted)).join(", ")}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Same rationale as TaskCardPreview, for a dragged column's header pill. */
+function ColumnPreview({ name, color }: { name: string; color: string | null }) {
+  return (
+    <div className="ph-board-column-drag-preview" style={{ borderTopColor: color ?? undefined }}>
+      {name}
     </div>
   );
 }
@@ -293,13 +354,25 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
   const [labelFilter, setLabelFilter] = useState("");
   const [overdueOnly, setOverdueOnly] = useState(false);
 
-  // Checkbox-completion "history": which column (if any) currently has its
-  // completed-tasks list expanded. Independent of the search/priority/etc.
-  // filters above — history always shows a column's full completed list,
-  // regardless of the active board filters.
+  // Per-column "history": which column (if any) currently has its history
+  // list expanded. Independent of the search/priority/etc. filters above —
+  // history always shows a column's full list, regardless of the active
+  // board filters.
   const [openHistoryColumnId, setOpenHistoryColumnId] = useState<string | null>(null);
+  // task_created/task_deleted events for this category, fetched once per
+  // board load and kept live via the "activity.created" socket event below —
+  // see historyItemsByColumn, which merges these with completions derived
+  // straight from `tasks`.
+  const [historyEvents, setHistoryEvents] = useState<ColumnHistoryEvent[]>([]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  // Drives the <DragOverlay> preview (see TaskCardPreview/ColumnPreview) —
+  // the id of whatever's actively being dragged, or null between drags.
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
+  function handleDragStart(event: DragStartEvent) {
+    setActiveDragId(String(event.active.id));
+  }
 
   function showToast(message: string, error = false) {
     setToast({ message, error });
@@ -364,6 +437,22 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
       // Non-critical — only the bulk bar's Assign/Add-label pickers, and the
       // create-task modal's "start from a template" select, would show
       // stale/empty options.
+    }
+
+    // task_created/task_deleted history for this category's per-column
+    // History panels (see historyItemsByColumn). Non-critical to the board
+    // itself if it fails — history just shows nothing beyond completions.
+    try {
+      const activityRes = await api.get<{ events: Array<ColumnHistoryEvent & { type: string }> }>(
+        `${projectBase}/activity?categoryId=${categoryId}&limit=100`,
+      );
+      setHistoryEvents(
+        activityRes.events.filter(
+          (e): e is ColumnHistoryEvent => e.type === "task_created" || e.type === "task_deleted",
+        ),
+      );
+    } catch {
+      setHistoryEvents([]);
     }
   }
 
@@ -433,12 +522,22 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     const onBoardColumnChanged = () => {
       load().catch(() => undefined);
     };
+    // Live-appends task_created/task_deleted events into this category's
+    // per-column History panels (see historyItemsByColumn) — every other
+    // event type is ignored here, the same way ActivityFeed.tsx's own socket
+    // handler filters by projectId rather than caring about every event.
+    const onActivityCreated = (event: ColumnHistoryEvent & { type: string; categoryId: string | null }) => {
+      if (event.categoryId !== categoryId) return;
+      if (event.type !== "task_created" && event.type !== "task_deleted") return;
+      setHistoryEvents((prev) => (prev.some((e) => e.id === event.id) ? prev : [event, ...prev]));
+    };
 
     socket.on("task.created", onTaskCreated);
     socket.on("task.updated", onTaskChanged);
     socket.on("task.moved", onTaskChanged);
     socket.on("task.deleted", onTaskDeleted);
     socket.on("board.column.changed", onBoardColumnChanged);
+    socket.on("activity.created", onActivityCreated);
 
     return () => {
       socket.off("task.created", onTaskCreated);
@@ -446,6 +545,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
       socket.off("task.moved", onTaskChanged);
       socket.off("task.deleted", onTaskDeleted);
       socket.off("board.column.changed", onBoardColumnChanged);
+      socket.off("activity.created", onActivityCreated);
       leaveProjectRoom(projectId);
       leaveCategoryRoom(categoryId);
     };
@@ -472,12 +572,6 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     const q = searchQuery.trim().toLowerCase();
     const now = Date.now();
     return tasks.filter((t) => {
-      // Completed tasks (completedAt set) never render in a column's normal
-      // task list — they live in that same column's "history" instead (see
-      // completedTasksByColumn below). This applies uniformly whether
-      // completion came from the checkbox or from being dragged into a
-      // done-category column, since both set the exact same field.
-      if (t.completedAt) return false;
       if (q && !t.title.toLowerCase().includes(q) && !(t.description ?? "").toLowerCase().includes(q)) {
         return false;
       }
@@ -574,24 +668,57 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
     return map;
   }, [filteredTasks]);
 
-  // Per-column "history": every completed task that belongs to this column,
-  // independent of the board's active search/priority/assignee/label/overdue
-  // filters (history is a separate, always-complete view, not another
-  // filtered slice of the board). Derived from the full `tasks` list, not
-  // `filteredTasks`. Most-recently-completed first.
-  const completedTasksByColumn = useMemo(() => {
-    const map = new Map<string, Task[]>();
+  // Per-column "history": a merged, chronological log of everything that's
+  // happened to tasks originating in this column — created, marked done, and
+  // deleted — independent of the board's active search/priority/etc. filters
+  // (history is a separate, always-complete view, not another filtered slice
+  // of the board). "Completed" entries are derived straight from the live
+  // `tasks` list (a completed task now lives on as a normal card in the
+  // board's done column — see filteredTasks above — attributed back to
+  // completedFromColumnId, or its current columnId if that's untracked, per
+  // schema.prisma). "Created" and "deleted" entries have no such live state
+  // to derive from (a deleted task has no row left at all), so they come
+  // from `historyEvents`, the task_created/task_deleted slice of this
+  // category's persisted activity log (see load() and the "activity.created"
+  // socket handler above).
+  type HistoryItem =
+    | { kind: "completed"; id: string; timestamp: string; task: Task }
+    | { kind: "created" | "deleted"; id: string; timestamp: string; title: string; actorDisplayName: string; actorIsDeleted: boolean };
+
+  const historyItemsByColumn = useMemo(() => {
+    const map = new Map<string, HistoryItem[]>();
+    function push(columnId: string | undefined, item: HistoryItem) {
+      if (!columnId) return;
+      const list = map.get(columnId) ?? [];
+      list.push(item);
+      map.set(columnId, list);
+    }
+
     for (const t of tasks) {
       if (!t.completedAt) continue;
-      const list = map.get(t.columnId) ?? [];
-      list.push(t);
-      map.set(t.columnId, list);
+      push(t.completedFromColumnId ?? t.columnId, {
+        kind: "completed",
+        id: `completed:${t.id}`,
+        timestamp: t.completedAt,
+        task: t,
+      });
     }
+    for (const e of historyEvents) {
+      push(e.payload.columnId, {
+        kind: e.type === "task_created" ? "created" : "deleted",
+        id: e.id,
+        timestamp: e.createdAt,
+        title: e.payload.taskTitle ?? "",
+        actorDisplayName: e.payload.actorDisplayName ?? "Someone",
+        actorIsDeleted: e.actorIsDeleted,
+      });
+    }
+
     for (const list of map.values()) {
-      list.sort((a, b) => new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime());
+      list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     }
     return map;
-  }, [tasks]);
+  }, [tasks, historyEvents]);
 
   const canEditTasks = role !== null && CAN_EDIT_TASK_ROLES.has(role);
   const canCreateTasks = role !== null && CAN_CREATE_TASK_ROLES.has(role);
@@ -654,6 +781,7 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
   }
 
   async function handleDragEnd(event: DragEndEvent) {
+    setActiveDragId(null);
     if (!workspaceId || !projectId) return;
     const { active, over } = event;
     if (!over) return;
@@ -883,10 +1011,12 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
   // Checked/unchecked from either the compact card checkbox or a column's
   // history "Revert" button — same `PATCH .../tasks/:taskId` call the rest
   // of this file already uses for task edits, with the identical
-  // 409-version-conflict handling (never a silent overwrite). This never
-  // touches `columnId`: the task stays in whatever column it was already in,
-  // it just disappears into (or reappears out of) that same column's
-  // history via `completedAt`.
+  // 409-version-conflict handling (never a silent overwrite). The server
+  // moves the task's `columnId` on both transitions: checking it relocates
+  // it into the board's done column, unchecking moves it back to wherever it
+  // came from (see tasks.service.ts#updateTask's completedFromColumnId
+  // handling) — this handler itself just applies whatever task state the
+  // server hands back.
   async function handleToggleTaskCompleted(task: Task, completed: boolean) {
     if (!workspaceId || !projectId) return;
     try {
@@ -1070,11 +1200,11 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
             </div>
             <div className="ph-field">
               <label htmlFor="categoryVisibility">Visibility</label>
-              <select
+              <Select
                 id="categoryVisibility"
                 value={categoryVisibilityDraft}
-                onChange={(e) => {
-                  const next = e.target.value as "workspace" | "private";
+                onChange={(v) => {
+                  const next = v as "workspace" | "private";
                   setCategoryVisibilityDraft(next);
                   if (next === "private" && categoryMembers.length === 0) {
                     api
@@ -1083,10 +1213,11 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                       .catch(() => undefined);
                   }
                 }}
-              >
-                <option value="workspace">Workspace — visible to every project member</option>
-                <option value="private">Private — only category members and managers</option>
-              </select>
+                options={[
+                  { value: "workspace", label: "Workspace — visible to every project member" },
+                  { value: "private", label: "Private — only category members and managers" },
+                ]}
+              />
             </div>
             <div style={{ display: "flex", gap: "0.6rem", marginBottom: "1rem" }}>
               <button
@@ -1122,20 +1253,18 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                     </li>
                   ))}
                 </ul>
-                <select
+                <Select
                   value=""
-                  onChange={(e) => e.target.value && handleAddCategoryMember(e.target.value)}
+                  onChange={(v) => v && handleAddCategoryMember(v)}
                   style={{ marginTop: "0.5rem" }}
-                >
-                  <option value="">Add a workspace member...</option>
-                  {workspaceMembers
-                    .filter((m) => !categoryMembers.some((cm) => cm.userId === m.userId))
-                    .map((m) => (
-                      <option key={m.userId} value={m.userId}>
-                        {m.displayName}
-                      </option>
-                    ))}
-                </select>
+                  aria-label="Add a workspace member"
+                  options={[
+                    { value: "", label: "Add a workspace member..." },
+                    ...workspaceMembers
+                      .filter((m) => !categoryMembers.some((cm) => cm.userId === m.userId))
+                      .map((m) => ({ value: m.userId, label: m.displayName })),
+                  ]}
+                />
               </div>
             )}
           </div>
@@ -1187,36 +1316,39 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
               onChange={(e) => setSearchQuery(e.target.value)}
               aria-label="Search tasks"
             />
-            <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} aria-label="Filter by priority">
-              <option value="">All priorities</option>
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="urgent">Urgent</option>
-            </select>
+            <Select
+              value={priorityFilter}
+              onChange={setPriorityFilter}
+              aria-label="Filter by priority"
+              options={[
+                { value: "", label: "All priorities" },
+                { value: "low", label: "Low" },
+                { value: "medium", label: "Medium" },
+                { value: "high", label: "High" },
+                { value: "urgent", label: "Urgent" },
+              ]}
+            />
             {assigneeOptions.length > 0 && (
-              <select
+              <Select
                 value={assigneeFilter}
-                onChange={(e) => setAssigneeFilter(e.target.value)}
+                onChange={setAssigneeFilter}
                 aria-label="Filter by assignee"
-              >
-                <option value="">All assignees</option>
-                {assigneeOptions.map(([id, displayName]) => (
-                  <option key={id} value={id}>
-                    {displayName}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: "", label: "All assignees" },
+                  ...assigneeOptions.map(([id, displayName]) => ({ value: id, label: displayName })),
+                ]}
+              />
             )}
             {labelOptions.length > 0 && (
-              <select value={labelFilter} onChange={(e) => setLabelFilter(e.target.value)} aria-label="Filter by label">
-                <option value="">All labels</option>
-                {labelOptions.map(([id, labelName]) => (
-                  <option key={id} value={id}>
-                    {labelName}
-                  </option>
-                ))}
-              </select>
+              <Select
+                value={labelFilter}
+                onChange={setLabelFilter}
+                aria-label="Filter by label"
+                options={[
+                  { value: "", label: "All labels" },
+                  ...labelOptions.map(([id, labelName]) => ({ value: id, label: labelName })),
+                ]}
+              />
             )}
             <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.85rem" }}>
               <input type="checkbox" checked={overdueOnly} onChange={(e) => setOverdueOnly(e.target.checked)} />
@@ -1255,7 +1387,13 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
         ) : columns === null ? (
           <p>Loading...</p>
         ) : (
-          <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCorners}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onDragCancel={() => setActiveDragId(null)}
+          >
             <SortableContext
               items={columns.map((c) => `${COLUMN_DRAG_PREFIX}${c.id}`)}
               strategy={horizontalListSortingStrategy}
@@ -1283,19 +1421,12 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                               aria-label="Column name"
                               autoFocus
                             />
-                            <select
+                            <Select
                               value={editingColumnCategory}
-                              onChange={(e) =>
-                                setEditingColumnCategory(e.target.value as "todo" | "in_progress" | "done")
-                              }
+                              onChange={(v) => setEditingColumnCategory(v as "todo" | "in_progress" | "done")}
                               aria-label="Column category"
-                            >
-                              {COLUMN_CATEGORY_OPTIONS.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
-                                  {opt.label}
-                                </option>
-                              ))}
-                            </select>
+                              options={COLUMN_CATEGORY_OPTIONS}
+                            />
                             <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
                               <label htmlFor="edit-column-color" style={{ fontSize: "0.8rem", color: "var(--ph-muted)" }}>
                                 Color (optional)
@@ -1444,27 +1575,48 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                         >
                           {openHistoryColumnId === column.id
                             ? "Hide history"
-                            : `History (${(completedTasksByColumn.get(column.id) ?? []).length})`}
+                            : `History (${(historyItemsByColumn.get(column.id) ?? []).length})`}
                         </button>
                         {openHistoryColumnId === column.id && (
                           <ul className="ph-column-history-list">
-                            {(completedTasksByColumn.get(column.id) ?? []).length === 0 && (
-                              <li className="ph-column-history-empty">No completed tasks yet.</li>
+                            {(historyItemsByColumn.get(column.id) ?? []).length === 0 && (
+                              <li className="ph-column-history-empty">No history yet.</li>
                             )}
-                            {(completedTasksByColumn.get(column.id) ?? []).map((completedTask) => (
-                              <li key={completedTask.id} className="ph-column-history-item">
-                                <span className="ph-column-history-title">{completedTask.title}</span>
-                                {canEditTasks && (
-                                  <button
-                                    type="button"
-                                    className="ph-remove-btn"
-                                    onClick={() => handleToggleTaskCompleted(completedTask, false)}
-                                  >
-                                    Revert
-                                  </button>
-                                )}
-                              </li>
-                            ))}
+                            {(historyItemsByColumn.get(column.id) ?? []).map((item) =>
+                              item.kind === "completed" ? (
+                                <li key={item.id} className="ph-column-history-item">
+                                  <span className="ph-column-history-title">
+                                    {item.task.completedByDisplayName ? (
+                                      <>
+                                        {formatUserName(
+                                          item.task.completedByDisplayName,
+                                          item.task.completedByIsDeleted,
+                                        )}{" "}
+                                        marked "{item.task.title}" as done
+                                      </>
+                                    ) : (
+                                      <>"{item.task.title}" marked as done</>
+                                    )}
+                                  </span>
+                                  {canEditTasks && (
+                                    <button
+                                      type="button"
+                                      className="ph-remove-btn"
+                                      onClick={() => handleToggleTaskCompleted(item.task, false)}
+                                    >
+                                      Revert
+                                    </button>
+                                  )}
+                                </li>
+                              ) : (
+                                <li key={item.id} className="ph-column-history-item">
+                                  <span className="ph-column-history-title ph-column-history-title-plain">
+                                    {formatUserName(item.actorDisplayName, item.actorIsDeleted)}{" "}
+                                    {item.kind === "created" ? "created" : "deleted"} "{item.title}"
+                                  </span>
+                                </li>
+                              ),
+                            )}
                           </ul>
                         )}
                       </div>
@@ -1485,17 +1637,12 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                           aria-label="New column name"
                           autoFocus
                         />
-                        <select
+                        <Select
                           value={newColumnCategory}
-                          onChange={(e) => setNewColumnCategory(e.target.value as "todo" | "in_progress" | "done")}
+                          onChange={(v) => setNewColumnCategory(v as "todo" | "in_progress" | "done")}
                           aria-label="New column category"
-                        >
-                          {COLUMN_CATEGORY_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
+                          options={COLUMN_CATEGORY_OPTIONS}
+                        />
                         <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
                           <label htmlFor="new-column-color" style={{ fontSize: "0.8rem", color: "var(--ph-muted)" }}>
                             Color (optional)
@@ -1559,6 +1706,23 @@ export default function KanbanBoardPage({ user }: { user: CurrentUser }) {
                 )}
               </div>
             </SortableContext>
+            <DragOverlay dropAnimation={null}>
+              {activeDragId && activeDragId.startsWith(COLUMN_DRAG_PREFIX)
+                ? (() => {
+                    const draggedColumn = columns.find(
+                      (c) => c.id === activeDragId.slice(COLUMN_DRAG_PREFIX.length),
+                    );
+                    return draggedColumn ? (
+                      <ColumnPreview name={draggedColumn.name} color={draggedColumn.color ?? null} />
+                    ) : null;
+                  })()
+                : activeDragId
+                  ? (() => {
+                      const draggedTask = tasks.find((t) => t.id === activeDragId);
+                      return draggedTask ? <TaskCardPreview task={draggedTask} /> : null;
+                    })()
+                  : null}
+            </DragOverlay>
           </DndContext>
         )}
       </div>

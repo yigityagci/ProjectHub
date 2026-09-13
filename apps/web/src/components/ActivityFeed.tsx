@@ -8,7 +8,14 @@ export interface ActivityEvent {
   projectId: string;
   actorId: string;
   actorIsDeleted: boolean;
-  type: "task_created" | "task_moved" | "task_assigned" | "comment_added" | "milestone_completed";
+  type:
+    | "task_created"
+    | "task_moved"
+    | "task_assigned"
+    | "task_completed"
+    | "task_deleted"
+    | "comment_added"
+    | "milestone_completed";
   payload: Record<string, unknown>;
   createdAt: string;
 }
@@ -27,6 +34,10 @@ function describeActivityAction(e: ActivityEvent): string {
       return `moved "${e.payload.taskTitle ?? ""}" from ${e.payload.fromColumnName ?? "?"} to ${e.payload.toColumnName ?? "?"}`;
     case "task_assigned":
       return `assigned "${e.payload.taskTitle ?? ""}" to ${e.payload.assigneeDisplayName ?? "someone"}`;
+    case "task_completed":
+      return `marked "${e.payload.taskTitle ?? ""}" as done`;
+    case "task_deleted":
+      return `deleted "${e.payload.taskTitle ?? ""}"`;
     case "comment_added":
       return `commented on "${e.payload.taskTitle ?? ""}"`;
     case "milestone_completed":

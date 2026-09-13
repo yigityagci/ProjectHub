@@ -49,6 +49,10 @@ export interface Task {
   startDate: string | null;
   dueDate: string | null;
   completedAt: string | null;
+  completedById: string | null;
+  completedByDisplayName: string | null;
+  completedByIsDeleted: boolean;
+  completedFromColumnId: string | null;
   version: number;
   createdAt: string;
   updatedAt: string;

@@ -17,6 +17,7 @@ const TASK_INCLUDE = {
   assignees: { include: { user: true } },
   labels: { include: { label: true } },
   recurrenceTemplate: { select: { id: true, title: true } },
+  completedBy: { select: { id: true, displayName: true, status: true } },
 } as const;
 
 const VERSION_CONFLICT_MESSAGE =
@@ -279,6 +280,29 @@ export async function bulkTaskAction(params: BulkTaskActionParams): Promise<Bulk
             // delete would throw P2025 for a subtask already removed by
             // the cascade of an earlier row in the same batch.
             await tx.task.deleteMany({ where: { id: { in: eligibleIds }, workspaceId, categoryId } });
+
+            // One task_deleted event per directly-requested task (not the
+            // cascaded subtasks — same granularity as every other bulk
+            // action here, which only ever logs for what was explicitly
+            // selected), using the pre-delete `eligibleMap` snapshot since
+            // the rows are already gone by this point.
+            for (const taskId of eligibleIds) {
+              const current = eligibleMap.get(taskId)!;
+              const event = await createActivityEvent(tx, {
+                workspaceId,
+                projectId,
+                categoryId,
+                actorId: actor.id,
+                type: "task_deleted",
+                payload: {
+                  taskId,
+                  taskTitle: current.title,
+                  columnId: current.columnId,
+                  actorDisplayName: actor.displayName,
+                },
+              });
+              activityEventsToBroadcast.push(event);
+            }
           }
           for (const taskId of eligibleIds) writeOutcome.set(taskId, "success");
           break;

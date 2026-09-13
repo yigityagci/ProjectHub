@@ -51,6 +51,7 @@ export async function listTasks(categoryId: string, filters: TaskListQuery = {})
       assignees: { include: { user: true } },
       labels: { include: { label: true } },
       recurrenceTemplate: { select: { id: true, title: true } },
+      completedBy: { select: { id: true, displayName: true, status: true } },
     },
     orderBy: [{ columnId: "asc" }, { position: "asc" }],
   });
@@ -63,6 +64,7 @@ export async function getTaskOrThrow(workspaceId: string, categoryId: string, ta
       assignees: { include: { user: true } },
       labels: { include: { label: true } },
       recurrenceTemplate: { select: { id: true, title: true } },
+      completedBy: { select: { id: true, displayName: true, status: true } },
     },
   });
   if (!task) {
@@ -218,6 +220,7 @@ export async function createTask(params: CreateTaskParams) {
         assignees: { include: { user: true } },
         labels: { include: { label: true } },
         recurrenceTemplate: { select: { id: true, title: true } },
+        completedBy: { select: { id: true, displayName: true, status: true } },
       },
     });
 
@@ -227,7 +230,15 @@ export async function createTask(params: CreateTaskParams) {
       categoryId,
       actorId: creatorId,
       type: "task_created",
-      payload: { taskId: created.id, taskTitle: created.title, actorDisplayName: creatorDisplayName },
+      payload: {
+        taskId: created.id,
+        taskTitle: created.title,
+        // Not used by the Activity tab's own wording, but lets a board's
+        // per-column History panel attribute this creation to the right
+        // column (see KanbanBoardPage.tsx).
+        columnId: created.columnId,
+        actorDisplayName: creatorDisplayName,
+      },
       via: params.via,
     });
 
@@ -239,7 +250,15 @@ export async function createTask(params: CreateTaskParams) {
 }
 
 export type UpdateTaskResult =
-  | { conflict: false; task: NonNullable<Awaited<ReturnType<typeof getTaskOrThrow>>> }
+  | {
+      conflict: false;
+      task: NonNullable<Awaited<ReturnType<typeof getTaskOrThrow>>>;
+      /** Set only when this call just checked "mark as done" AND that moved
+       * the task into the board's done column (see the completed-branch
+       * below) — lets the route layer log a task_completed activity event
+       * with the column name, without a second lookup. */
+      completedMovedTo?: { id: string; name: string };
+    }
   | { conflict: true; currentTask: NonNullable<Awaited<ReturnType<typeof getTaskOrThrow>>> };
 
 export async function updateTask(
@@ -248,6 +267,7 @@ export async function updateTask(
   categoryId: string,
   taskId: string,
   input: UpdateTaskInput,
+  actor?: TaskMoveActor,
 ): Promise<UpdateTaskResult> {
   // Validate referential fields before attempting the guarded write so a
   // 422 doesn't get masked by a spurious 409.
@@ -305,14 +325,58 @@ export async function updateTask(
     data.dueDate = rest.dueDate;
     data.dueReminderSentAt = null;
   }
-  // Explicit checkbox completion — independent of `moveTask`'s automatic
-  // done-category completion below: this never touches `columnId`, so a
-  // checked-off task stays in whatever column it was already in and simply
-  // disappears into that same column's completed/"history" view (derived
-  // client-side from `completedAt`, not from a column category). The client
-  // only ever expresses true/false intent; the server alone decides the
-  // stored timestamp.
-  if (rest.completed !== undefined) data.completedAt = rest.completed ? new Date() : null;
+  // Explicit checkbox completion. Checking it also moves the task into the
+  // board's done-category column (each category now has at most one — see
+  // columns.service.ts's create/update uniqueness check), converging with
+  // `moveTask`'s automatic done-category completion below onto the same
+  // state: completedAt set AND sitting in the done column. The column it was
+  // sitting in right before that move is stamped onto completedFromColumnId
+  // so the per-column History panel can attribute the completion to where
+  // the task actually came from (see schema.prisma). Unchecking (revert)
+  // clears completedAt/completedById/completedFromColumnId AND moves the
+  // task back to that origin column — a task completed purely by being
+  // dragged into the done column (no completedFromColumnId, see moveTask)
+  // has nowhere tracked to revert to, so it just stays put, unchecked.
+  let completedMovedTo: { id: string; name: string } | undefined;
+  if (rest.completed !== undefined) {
+    if (rest.completed) {
+      data.completedAt = new Date();
+      data.completedById = actor?.id ?? null;
+
+      const [currentForCompletion, doneColumn] = await Promise.all([
+        prisma.task.findFirst({ where: { id: taskId, workspaceId, categoryId }, select: { columnId: true } }),
+        prisma.boardColumn.findFirst({ where: { categoryId, category: DONE_CATEGORY } }),
+      ]);
+      if (doneColumn && currentForCompletion && currentForCompletion.columnId !== doneColumn.id) {
+        const maxPositionTask = await prisma.task.findFirst({
+          where: { columnId: doneColumn.id },
+          orderBy: { position: "desc" },
+          select: { position: true },
+        });
+        data.columnId = doneColumn.id;
+        data.position = computeAppendPosition(maxPositionTask?.position ?? null);
+        data.completedFromColumnId = currentForCompletion.columnId;
+        completedMovedTo = { id: doneColumn.id, name: doneColumn.name };
+      }
+    } else {
+      const currentForRevert = await prisma.task.findFirst({
+        where: { id: taskId, workspaceId, categoryId },
+        select: { completedFromColumnId: true },
+      });
+      data.completedAt = null;
+      data.completedById = null;
+      data.completedFromColumnId = null;
+      if (currentForRevert?.completedFromColumnId) {
+        const maxPositionTask = await prisma.task.findFirst({
+          where: { columnId: currentForRevert.completedFromColumnId },
+          orderBy: { position: "desc" },
+          select: { position: true },
+        });
+        data.columnId = currentForRevert.completedFromColumnId;
+        data.position = computeAppendPosition(maxPositionTask?.position ?? null);
+      }
+    }
+  }
   // Any write of a non-null rule (brand new or edited) resets nextRunAt to
   // the rule's own startAt and recurrenceCount to 0 — there is no "adjust in
   // place" concept in v1. Clearing (null) resets the same trio to their
@@ -341,6 +405,7 @@ export async function updateTask(
         assignees: { include: { user: true } },
         labels: { include: { label: true } },
         recurrenceTemplate: { select: { id: true, title: true } },
+        completedBy: { select: { id: true, displayName: true, status: true } },
       },
     });
     if (!current) {
@@ -350,7 +415,27 @@ export async function updateTask(
   }
 
   const updated = await getTaskOrThrow(workspaceId, categoryId, taskId);
-  return { conflict: false, task: updated };
+
+  if (completedMovedTo && actor) {
+    const activityEvent = await createActivityEvent(prisma, {
+      workspaceId,
+      projectId,
+      categoryId,
+      actorId: actor.id,
+      type: "task_completed",
+      payload: {
+        taskId,
+        taskTitle: updated.title,
+        columnId: completedMovedTo.id,
+        columnName: completedMovedTo.name,
+        actorDisplayName: actor.displayName,
+      },
+      via: actor.via,
+    });
+    broadcastActivityEvent(activityEvent);
+  }
+
+  return { conflict: false, task: updated, ...(completedMovedTo ? { completedMovedTo } : {}) };
 }
 
 export interface MoveTaskInputResolved {
@@ -444,12 +529,18 @@ export async function moveTask(
   // Phase 6: `completedAt` is set the moment a task's column transitions
   // into a `done`-category column, and cleared if it's moved back out —
   // this is the single source of truth the analytics/health-status engine
-  // relies on for completion timestamps.
+  // relies on for completion timestamps. `completedFromColumnId` mirrors it
+  // the same way the checkbox path in updateTask does, so a drag-completed
+  // task's history entry is also attributed to the column it came from
+  // rather than the done column it landed in (see schema.prisma).
   let completedAtUpdate: Date | null | undefined;
+  let completedFromColumnIdUpdate: string | null | undefined;
   if (targetColumn.category === DONE_CATEGORY && currentTask.column.category !== DONE_CATEGORY) {
     completedAtUpdate = new Date();
+    completedFromColumnIdUpdate = currentTask.columnId;
   } else if (targetColumn.category !== DONE_CATEGORY && currentTask.column.category === DONE_CATEGORY) {
     completedAtUpdate = null;
+    completedFromColumnIdUpdate = null;
   }
 
   const result = await prisma.task.updateMany({
@@ -459,6 +550,7 @@ export async function moveTask(
       position,
       version: { increment: 1 },
       ...(completedAtUpdate !== undefined ? { completedAt: completedAtUpdate } : {}),
+      ...(completedFromColumnIdUpdate !== undefined ? { completedFromColumnId: completedFromColumnIdUpdate } : {}),
     },
   });
 
@@ -469,6 +561,7 @@ export async function moveTask(
         assignees: { include: { user: true } },
         labels: { include: { label: true } },
         recurrenceTemplate: { select: { id: true, title: true } },
+        completedBy: { select: { id: true, displayName: true, status: true } },
       },
     });
     if (!current) {
@@ -502,9 +595,34 @@ export async function moveTask(
   return { conflict: false, task: updated };
 }
 
-export async function deleteTask(workspaceId: string, categoryId: string, taskId: string) {
-  await getTaskOrThrow(workspaceId, categoryId, taskId);
+export async function deleteTask(
+  workspaceId: string,
+  projectId: string,
+  categoryId: string,
+  taskId: string,
+  actor: TaskMoveActor,
+) {
+  const task = await getTaskOrThrow(workspaceId, categoryId, taskId);
   await prisma.task.delete({ where: { id: taskId } });
+
+  const activityEvent = await createActivityEvent(prisma, {
+    workspaceId,
+    projectId,
+    categoryId,
+    actorId: actor.id,
+    type: "task_deleted",
+    payload: {
+      taskId,
+      taskTitle: task.title,
+      // Lets a board's per-column History panel attribute this deletion to
+      // the column the task was actually in — there's no live Task row left
+      // to derive that from once it's gone, so it has to be captured here.
+      columnId: task.columnId,
+      actorDisplayName: actor.displayName,
+    },
+    via: actor.via,
+  });
+  broadcastActivityEvent(activityEvent);
 }
 
 export async function addAssignee(

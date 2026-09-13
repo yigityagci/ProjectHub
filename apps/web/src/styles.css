@@ -1007,6 +1007,23 @@ input[type="checkbox"] {
   opacity: 0.5;
 }
 
+/* The floating clone rendered inside <DragOverlay> for a column reorder
+   (see ColumnPreview in KanbanBoardPage.tsx) — same rationale as
+   .ph-task-card-overlay above. */
+.ph-board-column-drag-preview {
+  width: 280px;
+  padding: 0.6rem 0.85rem;
+  background: var(--ph-surface);
+  border: 1px solid var(--ph-border);
+  border-top: 3px solid var(--ph-border);
+  border-radius: 12px;
+  box-shadow: var(--ph-shadow-lg);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: grabbing;
+  transform: rotate(-1deg);
+}
+
 .ph-board-column.ph-board-column-add {
   display: flex;
   align-items: center;
@@ -1096,6 +1113,18 @@ input[type="checkbox"] {
   box-shadow: var(--ph-shadow-sm);
 }
 
+/* The floating clone rendered inside <DragOverlay> (see TaskCardPreview in
+   KanbanBoardPage.tsx) — this is what actually tracks the cursor. It's
+   portaled to document.body, outside the column's flex layout, so it needs
+   an explicit width (matching a card's rendered width inside a 280px
+   column) rather than inheriting one. */
+.ph-task-card-overlay {
+  width: 252px;
+  cursor: grabbing;
+  box-shadow: var(--ph-shadow-lg);
+  transform: rotate(-2deg);
+}
+
 .ph-task-card-title {
   font-weight: 600;
   margin-bottom: 0.4rem;
@@ -1122,6 +1151,47 @@ input[type="checkbox"] {
 .ph-task-checkbox {
   margin-top: 0.2rem;
   flex-shrink: 0;
+}
+
+/* A task card shows this "mark as done" checkbox right next to the
+ * "select for bulk actions" one (ph-task-checkbox, still the browser's
+ * default square) — identical squares side by side gave no way to tell
+ * them apart without hovering for the title tooltip. Rendering this one
+ * as a circle borrows the universal to-do-app convention (round = complete,
+ * square = select) so the two are distinguishable at a glance. */
+.ph-task-checkbox-complete {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  /* Deliberately more visible than a bare 1px hairline: this is a clickable
+     action, not a passive indicator, so it needs to read as a button against
+     a white card even before hovering. */
+  border: 1.5px solid var(--ph-muted);
+  background-color: rgba(var(--ph-primary-rgb), 0.08);
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease;
+  /* The checkmark sits in the background at rest — baked into the SVG's own
+     stroke-opacity (not the element's opacity) so the circle's border/fill
+     stay fully visible — as a hint of what checking it does, before the user
+     has ever hovered for the title tooltip. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%234f46e5' stroke-opacity='0.65' stroke-width='3'%3E%3Cpath d='M5 10l3 3 7-7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 11px 11px;
+}
+
+.ph-task-checkbox-complete:hover {
+  border-color: var(--ph-primary);
+  background-color: rgba(var(--ph-primary-rgb), 0.16);
+}
+
+.ph-task-checkbox-complete:checked {
+  background-color: var(--ph-primary);
+  border-color: var(--ph-primary);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='white' stroke-width='2.5'%3E%3Cpath d='M5 10l3 3 7-7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 .ph-task-card-open {
@@ -1191,6 +1261,14 @@ input[type="checkbox"] {
   white-space: nowrap;
   color: var(--ph-muted);
   text-decoration: line-through;
+}
+
+/* Creation/deletion history entries aren't "struck through, done with" the
+   way a completion is — a created task is often still an active card
+   elsewhere on the board, so the line-through would misleadingly suggest
+   it's gone. */
+.ph-column-history-title-plain {
+  text-decoration: none;
 }
 
 .ph-column-history-empty {

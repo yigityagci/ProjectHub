@@ -2,6 +2,10 @@ import type { CreateColumnInput, UpdateColumnInput } from "@projecthub/shared";
 import { prisma } from "../core/prisma.js";
 import { ConflictError, NotFoundError } from "../core/errors.js";
 import { computeAppendPosition } from "./position.js";
+import { DONE_CATEGORY } from "./tasks.service.js";
+
+const DONE_COLUMN_EXISTS_MESSAGE =
+  "This board already has a Done column. Each board can only have one — rename or repurpose the existing one instead.";
 
 const COLUMN_NOT_FOUND_MESSAGE = "This column doesn't exist in this category.";
 
@@ -28,6 +32,20 @@ export async function createColumn(
   categoryId: string,
   input: CreateColumnInput,
 ) {
+  const existingName = await prisma.boardColumn.findUnique({
+    where: { categoryId_name: { categoryId, name: input.name } },
+  });
+  if (existingName) {
+    throw new ConflictError("A column with this name already exists on this board.");
+  }
+
+  if (input.category === DONE_CATEGORY) {
+    const existingDone = await prisma.boardColumn.findFirst({ where: { categoryId, category: DONE_CATEGORY } });
+    if (existingDone) {
+      throw new ConflictError(DONE_COLUMN_EXISTS_MESSAGE);
+    }
+  }
+
   const maxPositionColumn = await prisma.boardColumn.findFirst({
     where: { categoryId },
     orderBy: { position: "desc" },
@@ -53,6 +71,23 @@ export async function updateColumn(
   input: UpdateColumnInput,
 ) {
   await getColumnOrThrow(workspaceId, categoryId, columnId);
+
+  if (input.name !== undefined) {
+    const existingName = await prisma.boardColumn.findUnique({
+      where: { categoryId_name: { categoryId, name: input.name } },
+    });
+    if (existingName && existingName.id !== columnId) {
+      throw new ConflictError("A column with this name already exists on this board.");
+    }
+  }
+
+  if (input.category === DONE_CATEGORY) {
+    const existingDone = await prisma.boardColumn.findFirst({ where: { categoryId, category: DONE_CATEGORY } });
+    if (existingDone && existingDone.id !== columnId) {
+      throw new ConflictError(DONE_COLUMN_EXISTS_MESSAGE);
+    }
+  }
+
   return prisma.boardColumn.update({
     where: { id: columnId },
     data: {

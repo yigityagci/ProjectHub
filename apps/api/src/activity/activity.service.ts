@@ -130,6 +130,11 @@ export function broadcastActivityEvent(event: ActivityEvent): void {
 export interface ListActivityEventsOptions {
   limit: number;
   cursor?: string;
+  /** Narrows the feed to a single category (e.g. a board's per-column
+   * History panel). Still subject to the same visible-category-id
+   * access check as the unfiltered feed below — a category the viewer
+   * can't see returns an empty page, never its events. */
+  categoryId?: string;
 }
 
 /**
@@ -160,12 +165,22 @@ export async function listActivityEvents(
     ? await listVisibleCategoryIdsForUser(projectId, viewer.userId, viewer.roleKey)
     : null;
 
+  // A specific categoryId narrows the query to exactly that category — but
+  // only if the viewer can actually see it, per the same visible-category-id
+  // check the unfiltered feed uses below. An invisible (private) category
+  // returns an empty page rather than leaking its events or its existence.
+  if (opts.categoryId && categoryFilter && !categoryFilter.includes(opts.categoryId)) {
+    return { events: [], nextCursor: null };
+  }
+
   const events = await prisma.activityEvent.findMany({
     where: {
       projectId,
-      ...(categoryFilter
-        ? { OR: [{ categoryId: null }, { categoryId: { in: categoryFilter } }] }
-        : {}),
+      ...(opts.categoryId
+        ? { categoryId: opts.categoryId }
+        : categoryFilter
+          ? { OR: [{ categoryId: null }, { categoryId: { in: categoryFilter } }] }
+          : {}),
     },
     include: { actor: { select: { status: true } } },
     orderBy: { createdAt: "desc" },

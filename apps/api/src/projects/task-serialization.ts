@@ -24,6 +24,9 @@ export interface TaskWithRelations {
   startDate: Date | null;
   dueDate: Date | null;
   completedAt: Date | null;
+  completedById: string | null;
+  completedBy: { id: string; displayName: string; status: UserStatus } | null;
+  completedFromColumnId: string | null;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -61,6 +64,10 @@ export function serializeTask(task: TaskWithRelations) {
     startDate: task.startDate,
     dueDate: task.dueDate,
     completedAt: task.completedAt,
+    completedById: task.completedById,
+    completedByDisplayName: task.completedBy?.displayName ?? null,
+    completedByIsDeleted: task.completedBy ? isDeletedUser(task.completedBy) : false,
+    completedFromColumnId: task.completedFromColumnId,
     version: task.version,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
