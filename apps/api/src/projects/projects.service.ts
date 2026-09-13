@@ -20,6 +20,13 @@ export interface CreateProjectServiceInput extends CreateProjectInput {
  * this call succeeds, before any board can be reached.
  */
 export async function createProject(input: CreateProjectServiceInput) {
+  const existingName = await prisma.project.findUnique({
+    where: { workspaceId_name: { workspaceId: input.workspaceId, name: input.name } },
+  });
+  if (existingName) {
+    throw new ConflictError("A project with this name already exists in this workspace.");
+  }
+
   return prisma.project.create({
     data: {
       workspaceId: input.workspaceId,
@@ -108,6 +115,15 @@ export async function listProjectsForUser(
 }
 
 export async function updateProject(workspaceId: string, projectId: string, input: UpdateProjectInput) {
+  if (input.name !== undefined) {
+    const existingName = await prisma.project.findUnique({
+      where: { workspaceId_name: { workspaceId, name: input.name } },
+    });
+    if (existingName && existingName.id !== projectId) {
+      throw new ConflictError("A project with this name already exists in this workspace.");
+    }
+  }
+
   return prisma.project.update({
     where: { id: projectId },
     data: {

@@ -447,6 +447,11 @@ model Project {
   customFields   CustomFieldDefinition[]
   taskTemplates  TaskTemplate[]
 
+  // Project names must be unique within a workspace (case-sensitive, same
+  // convention as Workspace.slug) — enforced here at the DB level and
+  // pre-checked in projects.service.ts so a collision surfaces as a clean
+  // ConflictError instead of a raw constraint-violation 500.
+  @@unique([workspaceId, name])
   @@index([workspaceId])
   @@index([ownerId])
   @@map("projects")
