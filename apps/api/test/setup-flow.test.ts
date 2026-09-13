@@ -41,6 +41,14 @@ describe("First-admin setup / bootstrap flow", () => {
 
     const statusRes = await client.get("/api/setup/status");
     expect(statusRes.json()).toEqual({ needsSetup: false });
+
+    // Self-hosted instances have no reason to make the admin manually
+    // create a workspace before doing anything else — setup auto-creates
+    // one and makes the new admin its OWNER.
+    const workspacesRes = await client.get("/api/workspaces");
+    expect(workspacesRes.statusCode).toBe(200);
+    expect(workspacesRes.json().workspaces).toHaveLength(1);
+    expect(workspacesRes.json().workspaces[0].role).toBe("OWNER");
   });
 
   it("rejects a second setup attempt once the first admin exists", async () => {

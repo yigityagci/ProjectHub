@@ -219,24 +219,70 @@ export default function App() {
   );
 }
 
+interface WorkspaceSummary {
+  id: string;
+  name: string;
+  slug: string;
+  role: string;
+}
+
 /**
- * Wraps WorkspacesPage at "/" with a one-time, fresh-page-load-only
- * redirect to the user's chosen default landing page (Personalization tab
- * -> "Default landing page after login", see lib/personalization.ts).
+ * Wraps WorkspacesPage at "/" with two shortcuts that skip the workspace
+ * picker entirely for the common case:
  *
- * `location.key === "default"` is react-router v6's own marker for the
- * very first location of a browser tab's history — i.e. a real fresh
- * load/direct navigation, never an in-app Link click or programmatic
- * navigate (both always mint a fresh random key). This is pure derived
- * render data (no external mutation), so it's also safe under React 18
- * StrictMode's double-render — unlike a sessionStorage-flag-during-render
- * approach, there's no write to react to.
+ * 1. A one-time, fresh-page-load-only redirect to the user's chosen default
+ *    landing page (Personalization tab -> "Default landing page after
+ *    login", see lib/personalization.ts). `location.key === "default"` is
+ *    react-router v6's own marker for the very first location of a browser
+ *    tab's history — i.e. a real fresh load/direct navigation, never an
+ *    in-app Link click or programmatic navigate (both always mint a fresh
+ *    random key). This is pure derived render data (no external mutation),
+ *    so it's also safe under React 18 StrictMode's double-render — unlike a
+ *    sessionStorage-flag-during-render approach, there's no write to react to.
+ * 2. Every self-hosted instance now auto-creates exactly one workspace at
+ *    setup time (see apps/api/src/auth/setup.routes.ts), so a user with
+ *    exactly one workspace membership never needs to pick one — redirect
+ *    straight into it. WorkspacesPage itself is unchanged and stays reachable
+ *    as a fallback for the 0-workspace (pre-existing admin who never made
+ *    one) and >1-workspace (pre-existing multi-workspace install) cases.
+ *
+ *    Deliberately NOT gated on the "Default landing page" personalization
+ *    preference being "workspaces": that value is every user's untouched
+ *    DB default (`User.defaultLandingPage @default("workspaces")`), not a
+ *    considered opt-in — gating on it would silently defeat this redirect
+ *    for every fresh single-workspace install (the common case this exists
+ *    for) rather than just the rare user who deliberately re-selected
+ *    "Your workspaces list" after trying "projects". There's no stored
+ *    signal that distinguishes "never touched" from "deliberately chosen"
+ *    for this preference, so shortcut 2 intentionally takes priority.
  */
 function LandingRedirect({ user, onLogout }: { user: CurrentUser; onLogout: () => void }) {
   const location = useLocation();
+  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[] | null>(null);
+
+  useEffect(() => {
+    api
+      .get<{ workspaces: WorkspaceSummary[] }>("/api/workspaces")
+      .then((res) => setWorkspaces(res.workspaces))
+      .catch(() => setWorkspaces([]));
+  }, []);
+
   if (location.key === "default") {
     const target = resolveLandingPath();
     if (target !== "/") return <Navigate to={target} replace />;
   }
+
+  if (workspaces === null) {
+    return (
+      <div className="ph-shell">
+        <Brand />
+      </div>
+    );
+  }
+
+  if (workspaces.length === 1) {
+    return <Navigate to={`/workspace/${workspaces[0]!.id}/projects`} replace />;
+  }
+
   return <WorkspacesPage user={user} onLogout={onLogout} />;
 }
