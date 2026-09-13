@@ -7,6 +7,7 @@ import ThemeToggle from "../components/ThemeToggle.js";
 import SettingsGearLink from "../components/SettingsGearLink.js";
 import { canAccessManageTeam } from "../lib/workspace-role-gates.js";
 import { setStoredLastWorkspaceId, clearStoredLastWorkspaceId } from "../lib/personalization.js";
+import Select from "../components/Select.js";
 import type { CurrentUser } from "../App.js";
 
 interface Project {
@@ -171,22 +172,28 @@ export default function ProjectsPage({ user }: { user: CurrentUser }) {
             onChange={(e) => setSearchInput(e.target.value)}
             aria-label="Search projects"
           />
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
-            <option value="">All statuses</option>
-            <option value="planning">Planning</option>
-            <option value="active">Active</option>
-            <option value="on_hold">On hold</option>
-            <option value="completed">Completed</option>
-          </select>
-          <select
+          <Select
+            value={statusFilter}
+            onChange={setStatusFilter}
+            aria-label="Filter by status"
+            options={[
+              { value: "", label: "All statuses" },
+              { value: "planning", label: "Planning" },
+              { value: "active", label: "Active" },
+              { value: "on_hold", label: "On hold" },
+              { value: "completed", label: "Completed" },
+            ]}
+          />
+          <Select
             value={archivedFilter}
-            onChange={(e) => setArchivedFilter(e.target.value)}
+            onChange={setArchivedFilter}
             aria-label="Filter by archived status"
-          >
-            <option value="">Active + archived</option>
-            <option value="false">Not archived</option>
-            <option value="true">Archived only</option>
-          </select>
+            options={[
+              { value: "", label: "Active + archived" },
+              { value: "false", label: "Not archived" },
+              { value: "true", label: "Archived only" },
+            ]}
+          />
           {hasActiveFilters && (
             <button type="button" className="ph-button ph-button-secondary ph-filter-clear" onClick={clearFilters}>
               Clear filters
@@ -241,14 +248,15 @@ export default function ProjectsPage({ user }: { user: CurrentUser }) {
               </div>
               <div className="ph-field">
                 <label htmlFor="projVisibility">Visibility</label>
-                <select
+                <Select
                   id="projVisibility"
                   value={visibility}
-                  onChange={(e) => setVisibility(e.target.value as "workspace" | "private")}
-                >
-                  <option value="workspace">Workspace — visible to every workspace member</option>
-                  <option value="private">Private — only project members and managers</option>
-                </select>
+                  onChange={(v) => setVisibility(v as "workspace" | "private")}
+                  options={[
+                    { value: "workspace", label: "Workspace — visible to every workspace member" },
+                    { value: "private", label: "Private — only project members and managers" },
+                  ]}
+                />
               </div>
               <button className="ph-button" type="submit" disabled={creating || !name.trim()}>
                 {creating ? "Creating..." : "Create project"}

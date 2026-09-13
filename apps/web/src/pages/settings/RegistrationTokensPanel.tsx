@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ROLE_KEYS, ROLE_RANK, ROLE_DISPLAY_NAME, type RoleKey } from "@projecthub/shared";
 import { api, ApiError } from "../../lib/api.js";
 import { formatUserName } from "../../lib/user-display.js";
+import Select from "../../components/Select.js";
 
 interface RegistrationTokenSummary {
   id: string;
@@ -160,17 +161,12 @@ export default function RegistrationTokensPanel({
       <form onSubmit={handleGenerate}>
         <div className="ph-field">
           <label htmlFor="registrationTokenRole">Role</label>
-          <select
+          <Select
             id="registrationTokenRole"
             value={tokenRole}
-            onChange={(e) => setTokenRole(e.target.value as RoleKey)}
-          >
-            {roleOptions.map((key) => (
-              <option key={key} value={key}>
-                {ROLE_DISPLAY_NAME[key]}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setTokenRole(v as RoleKey)}
+            options={roleOptions.map((key) => ({ value: key, label: ROLE_DISPLAY_NAME[key] }))}
+          />
         </div>
         <div className="ph-field">
           <label htmlFor="registrationTokenLabel">Label (optional)</label>

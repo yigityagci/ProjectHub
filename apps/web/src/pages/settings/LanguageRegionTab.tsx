@@ -1,6 +1,7 @@
 import { SUPPORTED_LOCALES } from "@projecthub/shared";
 import { api, ApiError } from "../../lib/api.js";
 import { setStoredLocale } from "../../lib/a11y.js";
+import Select from "../../components/Select.js";
 import type { SettingsTabProps } from "./types.js";
 
 const LOCALE_LABELS: Record<string, string> = {
@@ -10,7 +11,7 @@ const LOCALE_LABELS: Record<string, string> = {
 /**
  * Instant apply, no Save button. SUPPORTED_LOCALES currently ships with
  * only "en" (see docs/PHASES.md) — locale is persisted for real, but no
- * UI string is translated yet. A real `<select>` with one enabled option
+ * UI string is translated yet. A real, enabled Select with one option
  * rather than a disabled-looking control, so this reads as "more languages
  * coming soon", not broken.
  */
@@ -36,13 +37,12 @@ export default function LanguageRegionTab({ settings, onSettingsChange }: Settin
       </p>
       <div className="ph-field">
         <label htmlFor="settingsLocale">Language</label>
-        <select id="settingsLocale" value={settings.locale} onChange={(e) => handleChange(e.target.value)}>
-          {SUPPORTED_LOCALES.map((locale) => (
-            <option key={locale} value={locale}>
-              {LOCALE_LABELS[locale] ?? locale}
-            </option>
-          ))}
-        </select>
+        <Select
+          id="settingsLocale"
+          value={settings.locale}
+          onChange={handleChange}
+          options={SUPPORTED_LOCALES.map((locale) => ({ value: locale, label: LOCALE_LABELS[locale] ?? locale }))}
+        />
       </div>
       <p className="ph-subtitle" style={{ margin: 0 }}>
         More languages coming soon.

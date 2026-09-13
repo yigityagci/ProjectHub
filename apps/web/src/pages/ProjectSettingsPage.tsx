@@ -6,6 +6,7 @@ import { api, ApiError } from "../lib/api.js";
 import NotificationBell from "../components/NotificationBell.js";
 import ThemeToggle from "../components/ThemeToggle.js";
 import SettingsGearLink from "../components/SettingsGearLink.js";
+import Select from "../components/Select.js";
 import ProjectCustomFieldsPanel from "./ProjectCustomFieldsPanel.js";
 import ProjectTaskTemplatesPanel from "./ProjectTaskTemplatesPanel.js";
 import type { CurrentUser } from "../App.js";
@@ -302,31 +303,27 @@ export default function ProjectSettingsPage({ user }: { user: CurrentUser }) {
                     </div>
                     <div className="ph-field">
                       <label htmlFor="projStatus">Status</label>
-                      <select
+                      <Select
                         id="projStatus"
                         value={status}
-                        onChange={(e) => setStatus(e.target.value as ProjectStatus)}
-                      >
-                        {PROJECT_STATUSES.map((s) => (
-                          <option key={s} value={s}>
-                            {s.replace("_", " ")}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(v) => setStatus(v as ProjectStatus)}
+                        options={PROJECT_STATUSES.map((s) => ({ value: s, label: s.replace("_", " ") }))}
+                      />
                     </div>
                     <div className="ph-field">
                       <label htmlFor="projVisibility">Visibility</label>
-                      <select
+                      <Select
                         id="projVisibility"
                         value={visibility}
-                        onChange={(e) => setVisibility(e.target.value as ProjectVisibility)}
-                      >
-                        {PROJECT_VISIBILITIES.map((v) => (
-                          <option key={v} value={v}>
-                            {v === "workspace" ? "Workspace — visible to every workspace member" : "Private — only project members and managers"}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(v) => setVisibility(v as ProjectVisibility)}
+                        options={PROJECT_VISIBILITIES.map((v) => ({
+                          value: v,
+                          label:
+                            v === "workspace"
+                              ? "Workspace — visible to every workspace member"
+                              : "Private — only project members and managers",
+                        }))}
+                      />
                     </div>
                     <div className="ph-field">
                       <label htmlFor="projStartDate">Start date</label>

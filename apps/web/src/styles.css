@@ -308,38 +308,123 @@ input[type="checkbox"] {
   border-radius: 5px;
 }
 
-select {
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
+/* ---------------------------------------------------------------------
+ * Custom Select (components/Select.tsx) — replaces every native <select>
+ * in the app. `.ph-select` is the positioning root, `.ph-select-trigger`
+ * is the visible button (styled identically to the old native `select`
+ * rule it replaces), `.ph-select-panel`/`.ph-select-option` are the
+ * dropdown listbox. Context overrides below (`.ph-field .ph-select`,
+ * `.ph-filter-bar .ph-select`, `.ph-bulk-bar-group .ph-select`) mirror the
+ * old `.ph-field select` etc. rules 1:1, targeting the new class instead
+ * of the element selector.
+ * --------------------------------------------------------------------- */
+.ph-select {
+  position: relative;
+  display: inline-block;
   width: auto;
-  padding: 0.5rem 2.1rem 0.5rem 0.7rem;
+}
+
+.ph-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.7rem;
   border-radius: 8px;
   border: 1px solid var(--ph-border);
   font-size: 0.88rem;
   font-family: inherit;
   background-color: var(--ph-surface);
   color: inherit;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%236B7280' stroke-width='2'%3E%3Cpath d='M6 8l4 4 4-4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0.6rem center;
-  background-size: 13px 13px;
   cursor: pointer;
   transition: border-color 150ms ease, box-shadow 150ms ease;
 }
 
-select:hover {
+.ph-select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ph-select-chevron {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%236B7280' stroke-width='2'%3E%3Cpath d='M6 8l4 4 4-4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 13px 13px;
+}
+
+.ph-select-trigger:hover {
   border-color: var(--ph-primary);
 }
 
-select:focus {
+.ph-select-trigger:focus {
   outline: none;
+}
+
+.ph-select-trigger:focus-visible,
+.ph-select-trigger[aria-expanded="true"] {
   border-color: var(--ph-primary);
   box-shadow: 0 0 0 3px var(--ph-focus-ring);
 }
 
-select:disabled {
+.ph-select-trigger:disabled {
   opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ph-select-panel {
+  position: absolute;
+  z-index: 30;
+  left: 0;
+  min-width: 100%;
+  /* max-height is set inline per-open by Select.tsx, clamped to whatever
+     viewport space actually exists in the chosen direction. */
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.3rem;
+  list-style: none;
+  background: var(--ph-surface);
+  border: 1px solid var(--ph-border);
+  border-radius: 10px;
+  box-shadow: var(--ph-shadow-md);
+}
+
+/* Default/measured-fit case: opens downward. */
+.ph-select-panel-bottom {
+  top: calc(100% + 0.3rem);
+}
+
+/* Not enough room below the trigger (e.g. the Kanban board's fixed-position
+   bulk-action bar sitting near the bottom of the viewport) — open upward
+   instead of getting cropped by the viewport edge. */
+.ph-select-panel-top {
+  bottom: calc(100% + 0.3rem);
+}
+
+.ph-select-option {
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ph-select-option-highlighted {
+  background: rgba(var(--ph-primary-rgb), 0.12);
+}
+
+.ph-select-option-selected {
+  font-weight: 600;
+}
+
+.ph-select-option-disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -446,7 +531,7 @@ select:disabled {
 }
 
 .ph-field input,
-.ph-field select,
+.ph-field .ph-select,
 .ph-field textarea {
   width: 100%;
   background: transparent;
@@ -1205,10 +1290,9 @@ select:disabled {
   flex-wrap: wrap;
 }
 
-.ph-bulk-bar-group select {
+.ph-bulk-bar-group .ph-select-trigger {
   font-size: 0.82rem;
   padding: 0.3rem 0.5rem;
-  width: auto;
 }
 
 .ph-bulk-bar-divider {
@@ -1759,7 +1843,7 @@ select:disabled {
   background: var(--ph-surface);
 }
 
-.ph-filter-bar select {
+.ph-filter-bar .ph-select {
   flex: 0 1 auto;
   /* A select's intrinsic size is driven by its longest option text (e.g. a
      long assignee/label name); without a hard cap that can force the whole

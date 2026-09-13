@@ -6,6 +6,7 @@ import { getSocket } from "../lib/socket.js";
 import { renderCommentBody } from "../lib/mentions.js";
 import { formatUserName } from "../lib/user-display.js";
 import { IconX } from "../components/Icons.js";
+import Select from "../components/Select.js";
 import type { Task, Comment, Attachment } from "./task-types.js";
 
 interface WorkspaceMember {
@@ -941,24 +942,19 @@ export default function TaskDetailModal({
         const isStaleValue = currentValue !== "" && !field.options.includes(currentValue);
         return (
           <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-            <select
+            <Select
               value={currentValue}
               disabled={isSaving}
               aria-label={field.name}
-              onChange={(e) => handleSelectFieldChange(field, e.target.value)}
-            >
-              <option value="">Not set</option>
-              {isStaleValue && (
-                <option value={currentValue} disabled>
-                  {currentValue} (no longer a valid option)
-                </option>
-              )}
-              {field.options.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => handleSelectFieldChange(field, v)}
+              options={[
+                { value: "", label: "Not set" },
+                ...(isStaleValue
+                  ? [{ value: currentValue, label: `${currentValue} (no longer a valid option)`, disabled: true }]
+                  : []),
+                ...field.options.map((opt) => ({ value: opt, label: opt })),
+              ]}
+            />
             {clearButton}
           </div>
         );
@@ -1147,13 +1143,12 @@ export default function TaskDetailModal({
             <div className="ph-modal-section">
               <h3>Priority</h3>
               {canEdit ? (
-                <select value={priority} onChange={(e) => setPriority(e.target.value as Task["priority"])}>
-                  {PRIORITIES.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  aria-label="Priority"
+                  value={priority}
+                  onChange={(v) => setPriority(v as Task["priority"])}
+                  options={PRIORITIES.map((p) => ({ value: p, label: p }))}
+                />
               ) : (
                 <span className={`ph-badge ph-badge-priority-${task.priority}`}>{task.priority}</span>
               )}
@@ -1214,20 +1209,18 @@ export default function TaskDetailModal({
                 ))}
               </ul>
               {canEdit && (
-                <select
+                <Select
                   value=""
-                  onChange={(e) => e.target.value && handleToggleAssignee(e.target.value, false)}
+                  onChange={(v) => v && handleToggleAssignee(v, false)}
                   style={{ marginTop: "0.5rem" }}
-                >
-                  <option value="">Assign someone...</option>
-                  {members
-                    .filter((m) => !assignedUserIds.has(m.userId))
-                    .map((m) => (
-                      <option key={m.userId} value={m.userId}>
-                        {m.displayName}
-                      </option>
-                    ))}
-                </select>
+                  aria-label="Assign someone"
+                  options={[
+                    { value: "", label: "Assign someone..." },
+                    ...members
+                      .filter((m) => !assignedUserIds.has(m.userId))
+                      .map((m) => ({ value: m.userId, label: m.displayName })),
+                  ]}
+                />
               )}
             </div>
 
@@ -1301,14 +1294,15 @@ export default function TaskDetailModal({
               </ul>
               {canManageDependencies && (
                 <div className="ph-inline-form" style={{ marginTop: "0.5rem" }}>
-                  <select value={blockingTaskChoice} onChange={(e) => setBlockingTaskChoice(e.target.value)}>
-                    <option value="">Add a blocking task...</option>
-                    {dependencyCandidates.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.title}
-                      </option>
-                    ))}
-                  </select>
+                  <Select
+                    value={blockingTaskChoice}
+                    onChange={setBlockingTaskChoice}
+                    aria-label="Add a blocking task"
+                    options={[
+                      { value: "", label: "Add a blocking task..." },
+                      ...dependencyCandidates.map((t) => ({ value: t.id, label: t.title })),
+                    ]}
+                  />
                   <button className="ph-button ph-button-secondary" onClick={handleAddDependency}>
                     Add
                   </button>
@@ -1367,17 +1361,15 @@ export default function TaskDetailModal({
                     value={recurrenceInterval}
                     onChange={(e) => setRecurrenceInterval(e.target.value)}
                   />
-                  <select
+                  <Select
                     aria-label="Recurrence frequency"
                     value={recurrenceFreq}
-                    onChange={(e) => setRecurrenceFreq(e.target.value as RecurrenceFrequency)}
-                  >
-                    {RECURRENCE_FREQUENCIES.map((freq) => (
-                      <option key={freq} value={freq}>
-                        {RECURRENCE_UNIT_LABELS[freq].singular}(s)
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(v) => setRecurrenceFreq(v as RecurrenceFrequency)}
+                    options={RECURRENCE_FREQUENCIES.map((freq) => ({
+                      value: freq,
+                      label: `${RECURRENCE_UNIT_LABELS[freq].singular}(s)`,
+                    }))}
+                  />
                 </div>
 
                 <fieldset style={{ border: "1px solid var(--ph-border)", borderRadius: "0.4rem", padding: "0.6rem", marginBottom: "0.75rem" }}>

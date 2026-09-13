@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { SMTP_SECURITY_MODES, type SmtpSecurityMode } from "@projecthub/shared";
 import { api, ApiError } from "../../../lib/api.js";
 import CopyableCode from "./CopyableCode.js";
+import Select from "../../../components/Select.js";
 
 // Straight port of MailDeliveryPanel.tsx's original body (itself a straight
 // port of the deleted apps/web/src/pages/platform/PlatformEmailSettingsPage.tsx)
@@ -223,18 +224,13 @@ export default function ExternalSmtpSection({
           </div>
           <div className="ph-field">
             <label htmlFor="smtpSecurity">Security</label>
-            <select
+            <Select
               id="smtpSecurity"
               value={security}
-              onChange={(e) => setSecurity(e.target.value as SmtpSecurityMode)}
+              onChange={(v) => setSecurity(v as SmtpSecurityMode)}
               disabled={saving}
-            >
-              {SMTP_SECURITY_MODES.map((mode) => (
-                <option key={mode} value={mode}>
-                  {SECURITY_LABEL[mode]}
-                </option>
-              ))}
-            </select>
+              options={SMTP_SECURITY_MODES.map((mode) => ({ value: mode, label: SECURITY_LABEL[mode] }))}
+            />
           </div>
           <div className="ph-field">
             <label htmlFor="smtpUsername">Username</label>

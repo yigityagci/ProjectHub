@@ -12,6 +12,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { CUSTOM_FIELD_TYPES, type CustomFieldType } from "@projecthub/shared";
 import { api, ApiError } from "../lib/api.js";
 import { IconGrip, IconPencil, IconTrash } from "../components/Icons.js";
+import Select from "../components/Select.js";
 
 interface CustomFieldDefinition {
   id: string;
@@ -244,17 +245,12 @@ export default function ProjectCustomFieldsPanel({
         </div>
         <div className="ph-field">
           <label htmlFor="newCustomFieldType">Type</label>
-          <select
+          <Select
             id="newCustomFieldType"
             value={newType}
-            onChange={(e) => setNewType(e.target.value as CustomFieldType)}
-          >
-            {CUSTOM_FIELD_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {typeLabel(t)}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setNewType(v as CustomFieldType)}
+            options={CUSTOM_FIELD_TYPES.map((t) => ({ value: t, label: typeLabel(t) }))}
+          />
         </div>
         {isNewTypeSelectLike && (
           <div className="ph-field">

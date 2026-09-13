@@ -9,6 +9,7 @@ import {
   CAN_MANAGE_REGISTRATION_TOKENS_ROLES,
 } from "../../lib/workspace-role-gates.js";
 import RegistrationTokensPanel from "./RegistrationTokensPanel.js";
+import Select from "../../components/Select.js";
 import type { SettingsTabProps } from "./types.js";
 
 // Straight port of WorkspaceMembersPage.tsx's content (now deleted) into
@@ -36,9 +37,9 @@ interface Invitation {
 }
 
 /** Roles the caller (holding `ownRoleKey`) may assign to someone else —
- * soft-filters `<select>` options to the caller's own rank or below, mirroring
- * assertCanAssignRole's server-side invariant (the server remains the
- * authority; this is purely a UX nicety). */
+ * soft-filters the role Select's options to the caller's own rank or below,
+ * mirroring assertCanAssignRole's server-side invariant (the server remains
+ * the authority; this is purely a UX nicety). */
 function assignableRoles(ownRoleKey: string | null): RoleKey[] {
   if (!ownRoleKey || !(ROLE_KEYS as readonly string[]).includes(ownRoleKey)) return [];
   const ownRank = ROLE_RANK[ownRoleKey as RoleKey];
@@ -262,23 +263,20 @@ export default function ManageTeamTab({
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexShrink: 0 }}>
                     {!isSelf && canManageRoles ? (
-                      <select
+                      <Select
                         aria-label={`Role for ${m.email}`}
                         value={m.role}
-                        onChange={(e) => handleRoleChange(m, e.target.value)}
-                      >
-                        {/* Always include the member's current role, even if it
-                            falls outside the caller's own assignable range, so
-                            the select never silently misrepresents their role. */}
-                        {!roleOptions.includes(m.role as RoleKey) && (
-                          <option value={m.role}>{ROLE_DISPLAY_NAME[m.role as RoleKey] ?? m.role}</option>
-                        )}
-                        {roleOptions.map((key) => (
-                          <option key={key} value={key}>
-                            {ROLE_DISPLAY_NAME[key]}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(v) => handleRoleChange(m, v)}
+                        options={[
+                          // Always include the member's current role, even if it
+                          // falls outside the caller's own assignable range, so
+                          // the select never silently misrepresents their role.
+                          ...(!roleOptions.includes(m.role as RoleKey)
+                            ? [{ value: m.role, label: ROLE_DISPLAY_NAME[m.role as RoleKey] ?? m.role }]
+                            : []),
+                          ...roleOptions.map((key) => ({ value: key, label: ROLE_DISPLAY_NAME[key] })),
+                        ]}
+                      />
                     ) : (
                       <span className="ph-role-badge">{ROLE_DISPLAY_NAME[m.role as RoleKey] ?? m.role}</span>
                     )}
@@ -351,17 +349,12 @@ export default function ManageTeamTab({
             </div>
             <div className="ph-field">
               <label htmlFor="inviteRole">Role</label>
-              <select
+              <Select
                 id="inviteRole"
                 value={inviteRole}
-                onChange={(e) => setInviteRole(e.target.value as RoleKey)}
-              >
-                {inviteRoleOptions.map((key) => (
-                  <option key={key} value={key}>
-                    {ROLE_DISPLAY_NAME[key]}
-                  </option>
-                ))}
-              </select>
+                onChange={(v) => setInviteRole(v as RoleKey)}
+                options={inviteRoleOptions.map((key) => ({ value: key, label: ROLE_DISPLAY_NAME[key] }))}
+              />
             </div>
             <button className="ph-button" type="submit" disabled={inviting || !inviteEmail.trim()}>
               {inviting ? "Sending..." : "Send invitation"}

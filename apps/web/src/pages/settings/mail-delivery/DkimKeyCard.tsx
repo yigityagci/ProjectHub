@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, ApiError } from "../../../lib/api.js";
 import type { DkimKeyGenerationResult, PostfixConfigView } from "./types.js";
+import Select from "../../../components/Select.js";
 
 function formatDateTime(value: string): string {
   return new Date(value).toLocaleString();
@@ -162,10 +163,15 @@ export default function DkimKeyCard({
           </div>
           <div className="ph-field">
             <label htmlFor="pfDkimKeyBits">Key size</label>
-            <select id="pfDkimKeyBits" value={keyBits} onChange={(e) => setKeyBits(Number(e.target.value) as 2048 | 4096)}>
-              <option value={2048}>2048-bit (recommended)</option>
-              <option value={4096}>4096-bit</option>
-            </select>
+            <Select
+              id="pfDkimKeyBits"
+              value={String(keyBits)}
+              onChange={(v) => setKeyBits(Number(v) as 2048 | 4096)}
+              options={[
+                { value: "2048", label: "2048-bit (recommended)" },
+                { value: "4096", label: "4096-bit" },
+              ]}
+            />
           </div>
           <button
             type="button"

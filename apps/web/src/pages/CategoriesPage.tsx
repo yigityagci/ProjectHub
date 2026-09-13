@@ -6,6 +6,7 @@ import NotificationBell from "../components/NotificationBell.js";
 import ThemeToggle from "../components/ThemeToggle.js";
 import SettingsGearLink from "../components/SettingsGearLink.js";
 import { IconPlus } from "../components/Icons.js";
+import Select from "../components/Select.js";
 import { getCurrentMilestone, getMilestoneDisplayOrder } from "../lib/milestone-progress.js";
 import type { CurrentUser } from "../App.js";
 
@@ -438,18 +439,18 @@ export default function CategoriesPage({ user }: { user: CurrentUser }) {
             >
               <div className="ph-field">
                 <label htmlFor="newProjectMember">Add a workspace member</label>
-                <select
+                <Select
                   id="newProjectMember"
                   value={selectedNewMemberId}
-                  onChange={(e) => setSelectedNewMemberId(e.target.value)}
-                >
-                  <option value="">Select a member...</option>
-                  {addableRosterMembers.map((m) => (
-                    <option key={m.userId} value={m.userId}>
-                      {m.displayName} ({m.email})
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelectedNewMemberId}
+                  options={[
+                    { value: "", label: "Select a member..." },
+                    ...addableRosterMembers.map((m) => ({
+                      value: m.userId,
+                      label: `${m.displayName} (${m.email})`,
+                    })),
+                  ]}
+                />
               </div>
               <button className="ph-button" type="submit" disabled={addingMember || !selectedNewMemberId}>
                 {addingMember ? "Adding..." : "Add"}
@@ -764,14 +765,15 @@ export default function CategoriesPage({ user }: { user: CurrentUser }) {
                   </div>
                   <div className="ph-field">
                     <label htmlFor="catVisibility">Visibility</label>
-                    <select
+                    <Select
                       id="catVisibility"
                       value={newCategoryVisibility}
-                      onChange={(e) => setNewCategoryVisibility(e.target.value as "workspace" | "private")}
-                    >
-                      <option value="workspace">Workspace — visible to every project member</option>
-                      <option value="private">Private — only category members and managers</option>
-                    </select>
+                      onChange={(v) => setNewCategoryVisibility(v as "workspace" | "private")}
+                      options={[
+                        { value: "workspace", label: "Workspace — visible to every project member" },
+                        { value: "private", label: "Private — only category members and managers" },
+                      ]}
+                    />
                   </div>
                   <div style={{ display: "flex", gap: "0.6rem" }}>
                     <button

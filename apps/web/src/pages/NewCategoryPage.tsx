@@ -4,6 +4,7 @@ import { Brand } from "../App.js";
 import { api, ApiError } from "../lib/api.js";
 import NotificationBell from "../components/NotificationBell.js";
 import ThemeToggle from "../components/ThemeToggle.js";
+import Select from "../components/Select.js";
 import type { CurrentUser } from "../App.js";
 
 interface Category {
@@ -97,14 +98,15 @@ export default function NewCategoryPage({ user }: { user: CurrentUser }) {
           </div>
           <div className="ph-field">
             <label htmlFor="firstCategoryVisibility">Visibility</label>
-            <select
+            <Select
               id="firstCategoryVisibility"
               value={visibility}
-              onChange={(e) => setVisibility(e.target.value as "workspace" | "private")}
-            >
-              <option value="workspace">Workspace — visible to every project member</option>
-              <option value="private">Private — only category members and managers</option>
-            </select>
+              onChange={(v) => setVisibility(v as "workspace" | "private")}
+              options={[
+                { value: "workspace", label: "Workspace — visible to every project member" },
+                { value: "private", label: "Private — only category members and managers" },
+              ]}
+            />
           </div>
           <button className="ph-button" type="submit" disabled={creating || !name.trim()}>
             {creating ? "Creating..." : "Create category and go to the board"}

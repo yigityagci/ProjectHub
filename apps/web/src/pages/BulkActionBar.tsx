@@ -2,6 +2,7 @@ import { useState, type Dispatch, type SetStateAction } from "react";
 import { api, ApiError } from "../lib/api.js";
 import type { BulkTaskActionInput } from "../lib/api.js";
 import { IconX } from "../components/Icons.js";
+import Select from "../components/Select.js";
 import type { Task } from "./task-types.js";
 import { formatUserName } from "../lib/user-display.js";
 
@@ -309,19 +310,16 @@ export default function BulkActionBar({
           <>
             <span className="ph-bulk-bar-divider" aria-hidden="true" />
             <div className="ph-bulk-bar-group">
-              <select
+              <Select
                 aria-label="Move selected tasks to column"
                 value={moveColumnId}
                 disabled={busy}
-                onChange={(e) => setMoveColumnId(e.target.value)}
-              >
-                <option value="">Move to...</option>
-                {columns.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+                onChange={setMoveColumnId}
+                options={[
+                  { value: "", label: "Move to..." },
+                  ...columns.map((c) => ({ value: c.id, label: c.name })),
+                ]}
+              />
               <button
                 type="button"
                 className="ph-button ph-button-secondary"
@@ -335,18 +333,13 @@ export default function BulkActionBar({
 
             <span className="ph-bulk-bar-divider" aria-hidden="true" />
             <div className="ph-bulk-bar-group">
-              <select
+              <Select
                 aria-label="Set priority for selected tasks"
                 value={movePriority}
                 disabled={busy}
-                onChange={(e) => setMovePriority(e.target.value as Task["priority"])}
-              >
-                {PRIORITIES.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
+                onChange={(v) => setMovePriority(v as Task["priority"])}
+                options={PRIORITIES.map((p) => ({ value: p, label: p }))}
+              />
               <button
                 type="button"
                 className="ph-button ph-button-secondary"
@@ -360,19 +353,16 @@ export default function BulkActionBar({
 
             <span className="ph-bulk-bar-divider" aria-hidden="true" />
             <div className="ph-bulk-bar-group">
-              <select
+              <Select
                 aria-label="Add label to selected tasks"
                 value={addLabelId}
                 disabled={busy}
-                onChange={(e) => setAddLabelId(e.target.value)}
-              >
-                <option value="">Add label...</option>
-                {projectLabels.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                  </option>
-                ))}
-              </select>
+                onChange={setAddLabelId}
+                options={[
+                  { value: "", label: "Add label..." },
+                  ...projectLabels.map((l) => ({ value: l.id, label: l.name })),
+                ]}
+              />
               <button
                 type="button"
                 className="ph-button ph-button-secondary"
@@ -386,19 +376,16 @@ export default function BulkActionBar({
 
             {removeLabelOptions.length > 0 && (
               <div className="ph-bulk-bar-group">
-                <select
+                <Select
                   aria-label="Remove label from selected tasks"
                   value={removeLabelId}
                   disabled={busy}
-                  onChange={(e) => setRemoveLabelId(e.target.value)}
-                >
-                  <option value="">Remove label...</option>
-                  {removeLabelOptions.map(([id, l]) => (
-                    <option key={id} value={id}>
-                      {l.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setRemoveLabelId}
+                  options={[
+                    { value: "", label: "Remove label..." },
+                    ...removeLabelOptions.map(([id, l]) => ({ value: id, label: l.name })),
+                  ]}
+                />
                 <button
                   type="button"
                   className="ph-button ph-button-secondary"
@@ -417,19 +404,16 @@ export default function BulkActionBar({
           <>
             <span className="ph-bulk-bar-divider" aria-hidden="true" />
             <div className="ph-bulk-bar-group">
-              <select
+              <Select
                 aria-label="Assign selected tasks"
                 value={assignUserId}
                 disabled={busy}
-                onChange={(e) => setAssignUserId(e.target.value)}
-              >
-                <option value="">Assign to...</option>
-                {workspaceMembers.map((m) => (
-                  <option key={m.userId} value={m.userId}>
-                    {m.displayName}
-                  </option>
-                ))}
-              </select>
+                onChange={setAssignUserId}
+                options={[
+                  { value: "", label: "Assign to..." },
+                  ...workspaceMembers.map((m) => ({ value: m.userId, label: m.displayName })),
+                ]}
+              />
               <button
                 type="button"
                 className="ph-button ph-button-secondary"
@@ -443,19 +427,16 @@ export default function BulkActionBar({
 
             {unassignOptions.length > 0 && (
               <div className="ph-bulk-bar-group">
-                <select
+                <Select
                   aria-label="Remove assignee from selected tasks"
                   value={unassignUserId}
                   disabled={busy}
-                  onChange={(e) => setUnassignUserId(e.target.value)}
-                >
-                  <option value="">Remove assignee...</option>
-                  {unassignOptions.map(([id, displayName]) => (
-                    <option key={id} value={id}>
-                      {displayName}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setUnassignUserId}
+                  options={[
+                    { value: "", label: "Remove assignee..." },
+                    ...unassignOptions.map(([id, displayName]) => ({ value: id, label: displayName })),
+                  ]}
+                />
                 <button
                   type="button"
                   className="ph-button ph-button-secondary"

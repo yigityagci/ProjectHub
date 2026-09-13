@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { IconX } from "../components/Icons.js";
+import Select from "../components/Select.js";
 import type { Task, TaskTemplate } from "./task-types.js";
 
 const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
@@ -123,14 +124,15 @@ export default function CreateTaskModal({
           {templates.length > 0 && (
             <div className="ph-field">
               <label>Start from a template (optional)</label>
-              <select value={selectedTemplateId} onChange={(e) => handleSelectTemplate(e.target.value)}>
-                <option value="">Blank task</option>
-                {templates.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
+              <Select
+                aria-label="Start from a template (optional)"
+                value={selectedTemplateId}
+                onChange={handleSelectTemplate}
+                options={[
+                  { value: "", label: "Blank task" },
+                  ...templates.map((t) => ({ value: t.id, label: t.name })),
+                ]}
+              />
               {templateLabelIds.length > 0 && (
                 <div style={{ marginTop: "0.4rem" }}>
                   <span style={{ fontSize: "0.78rem", color: "var(--ph-muted)" }}>Labels applied automatically:</span>
@@ -173,13 +175,12 @@ export default function CreateTaskModal({
 
           <div className="ph-field">
             <label>Priority</label>
-            <select value={priority} onChange={(e) => setPriority(e.target.value as Task["priority"])}>
-              {PRIORITIES.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
+            <Select
+              aria-label="Priority"
+              value={priority}
+              onChange={(v) => setPriority(v as Task["priority"])}
+              options={PRIORITIES.map((p) => ({ value: p, label: p }))}
+            />
           </div>
 
           <div style={{ display: "flex", gap: "0.75rem" }}>

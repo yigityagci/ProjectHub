@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, ApiError } from "../lib/api.js";
 import { IconPencil, IconTrash } from "../components/Icons.js";
+import Select from "../components/Select.js";
 import type { Task, TaskTemplate } from "./task-types.js";
 
 const PRIORITIES: Task["priority"][] = ["low", "medium", "high", "urgent"];
@@ -234,17 +235,12 @@ export default function ProjectTaskTemplatesPanel({
                     </div>
                     <div className="ph-field">
                       <label htmlFor={`editPriority-${template.id}`}>Priority</label>
-                      <select
+                      <Select
                         id={`editPriority-${template.id}`}
                         value={editPriority}
-                        onChange={(e) => setEditPriority(e.target.value as Task["priority"])}
-                      >
-                        {PRIORITIES.map((p) => (
-                          <option key={p} value={p}>
-                            {p}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(v) => setEditPriority(v as Task["priority"])}
+                        options={PRIORITIES.map((p) => ({ value: p, label: p }))}
+                      />
                     </div>
                     <div className="ph-field">
                       <label>Default labels</label>
@@ -389,17 +385,12 @@ export default function ProjectTaskTemplatesPanel({
         </div>
         <div className="ph-field">
           <label htmlFor="newTemplatePriority">Priority</label>
-          <select
+          <Select
             id="newTemplatePriority"
             value={newPriority}
-            onChange={(e) => setNewPriority(e.target.value as Task["priority"])}
-          >
-            {PRIORITIES.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setNewPriority(v as Task["priority"])}
+            options={PRIORITIES.map((p) => ({ value: p, label: p }))}
+          />
         </div>
         <div className="ph-field">
           <label>Default labels</label>
