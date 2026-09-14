@@ -30,13 +30,14 @@ architecture, data model, and security design.
   board columns, tasks (with one-level subtasks, priorities, dates, labels,
   milestones, and dependencies), optimistic concurrency on task edits/
   moves, and a drag-and-drop Kanban board scoped to each category.
-- **Task completion checkbox with per-column history** - tasks can be
-  checked off independently of which column they sit in. Checking a task
-  sets its completion timestamp without moving it to a different column;
-  it disappears from that column's normal list into that same column's
-  revertible "History" panel. Completion is tracked consistently through
-  the analytics engine regardless of which column a task currently sits
-  in.
+- **Single Done column with a "mark as done" checkbox** - each board has at
+  most one Done-category column (enforced on column create/rename).
+  Checking a task's completion checkbox moves it straight into that Done
+  column and records who completed it; unchecking it moves it back to
+  wherever it came from. A per-column "History" panel shows a merged,
+  chronological log of every task created, completed, or deleted that
+  originated in that column - not just completions - alongside the
+  project-wide Activity feed, which surfaces the same events.
 - **Custom column colors** - each board column can optionally be given its
   own accent color, independent of its todo/in-progress/done
   classification, in addition to the built-in category-based default
@@ -50,9 +51,15 @@ architecture, data model, and security design.
   assignments), and file attachments served only through an authorized
   download endpoint (never a static/public file path).
 - **Activity feed & audit log** - a user-facing, per-project (and
-  per-category) activity feed (task created/moved/assigned, comments,
-  milestones) alongside (and never mixed with) the separate security
-  audit log.
+  per-category) activity feed (task created/moved/assigned/completed/
+  deleted, comments, milestones) alongside (and never mixed with) the
+  separate security audit log.
+- **MCP server for AI-assisted actions** - a hand-rolled Model Context
+  Protocol server lets an AI agent (via a per-user, revocable agent
+  token) create/update/move tasks through the exact same RBAC and
+  validation every real request goes through - no shortcut path. Actions
+  taken this way are clearly attributed in the activity feed (the human
+  token owner, with the connecting agent's label, never a bare "AI").
 - **Analytics & health status** - real operational metrics (completion
   rate, overdue/blocked counts, workload by assignee, completion-time
   trends, milestone progress) plus a deterministic, rule-based (not
@@ -98,14 +105,20 @@ and `packages/shared/package.json` for exact dependency versions.
 ## Quick start (Docker Compose)
 
 ```bash
-git clone <this-repo-url> projecthub
-cd projecthub
+git clone https://github.com/yigityagci/ProjectHub.git
+cd ProjectHub
 cp .env.example .env
 # Edit .env: set POSTGRES_PASSWORD, APP_SECRET, and MAIL_CONTROL_TOKEN to
 # strong random values (MAIL_CONTROL_TOKEN is required for `api` to boot
 # even if you never enable self-hosted mail delivery - see .env.example).
 docker-compose up -d
 ```
+
+The commands throughout this README use `docker-compose` (the standalone
+v1 CLI). If your Docker install only has the v2 plugin (the default on
+current Docker Desktop and most fresh Docker Engine installs), use
+`docker compose` (a space, not a hyphen) instead - the subcommands and
+flags are otherwise identical.
 
 This brings up the database, Redis, the API, and the web UI. Once the
 `api` and `web` containers report healthy (`docker-compose ps`):
@@ -134,16 +147,17 @@ troubleshooting section - see [`docs/PRODUCTION.md`](docs/PRODUCTION.md).
 
 A precise, followable walkthrough of the full flow on a clean machine,
 useful both for a first-time self-hoster and as a manual regression check
-after changes. (This exact checklist has **not** been executed against a
-real Docker Engine in this development environment - Docker has not been
-available in any phase of this project's development - but every step
-maps directly to a REST endpoint or UI flow that **is** covered by the
-automated test suite; see `pnpm test`.)
+after changes. Docker Compose bring-up, first-admin setup, and the core
+project/category/task/checkbox flow (steps 1-10 below) have been manually
+verified against real Docker containers during development. Every step
+also maps directly to a REST endpoint or UI flow covered by the automated
+test suite (see `pnpm test`), even where it hasn't been independently
+re-run through this exact manual walkthrough.
 
 1. **Clone and configure:**
-   `git clone`, `cd projecthub`, `cp .env.example .env`, then set
-   `POSTGRES_PASSWORD`, `APP_SECRET`, and `MAIL_CONTROL_TOKEN` to strong
-   random values.
+   `git clone https://github.com/yigityagci/ProjectHub.git`, `cd ProjectHub`,
+   `cp .env.example .env`, then set `POSTGRES_PASSWORD`, `APP_SECRET`, and
+   `MAIL_CONTROL_TOKEN` to strong random values.
 2. **Bring up the stack:** `docker-compose up -d`, then
    `docker-compose ps` until `db`, `redis`, `api`, and `web` all report
    `healthy`.
@@ -174,10 +188,12 @@ automated test suite; see `pnpm test`.)
 9. **Create and move tasks:** add a few tasks to different columns, open
    one to set its priority/description/assignee/labels, and drag a task
    between columns.
-10. **Complete a task via the checkbox:** check off a task without moving
-    it out of its current column, confirm it disappears from that
-    column's normal list, then open that column's "History" panel and
-    revert it back to incomplete.
+10. **Complete a task via the checkbox:** check off a task in, say, "To
+    Do" and confirm it moves into the board's Done column. Open To Do's
+    "History" panel and confirm it reads "\<you\> marked \<task\> as
+    done" - History is keyed by where a task *came from*, not where it
+    ended up. Uncheck it from the Done column and confirm it moves back
+    to To Do.
 11. **Try a custom column color:** set a custom accent color on a column
     (or clear it back to the category default) and confirm the board
     reflects it.
@@ -195,14 +211,14 @@ automated test suite; see `pnpm test`.)
     downloads correctly (and that a third, unauthenticated or
     unauthorized session cannot fetch it directly).
 15. **Check the activity feed:** open the board's "Activity" tab and
-    confirm the task-created/moved/assigned/commented events from the
-    steps above appear, most-recent-first.
+    confirm the task-created/moved/assigned/completed/commented events
+    from the steps above appear, most-recent-first.
 16. **Check analytics:** open "Analytics" for the project and confirm the
     stat cards, workload/status/priority breakdowns, and the health-status
     banner (should read "On Track" for a fresh project with no overdue/
     blocked tasks) all render with real numbers matching what you just
     created, correctly counting the task you completed via the checkbox
-    in step 10 even though it never left its original column.
+    in step 10.
 17. **Search/filter:** use the projects list search box and the Kanban
     board's filter bar to narrow results by name/title, status, priority,
     assignee, and label, and confirm the results are actually narrowed
